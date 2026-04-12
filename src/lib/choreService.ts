@@ -13,7 +13,7 @@ import {
   arrayUnion
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
-import { Task, User, Household, TaskInstance } from '../types';
+import { Task, User, Household, TaskInstance, Invitation } from '../types';
 
 const TASKS_COLLECTION = 'tasks';
 const USERS_COLLECTION = 'users';
@@ -60,6 +60,19 @@ export const choreService = {
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `${HOUSEHOLDS_COLLECTION}/${id}`);
     }
+  },
+
+  subscribeToHousehold: (id: string, callback: (household: Household | null) => void) => {
+    const docRef = doc(db, HOUSEHOLDS_COLLECTION, id);
+    return onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        callback({ ...docSnap.data(), id: docSnap.id } as Household);
+      } else {
+        callback(null);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `${HOUSEHOLDS_COLLECTION}/${id}`);
+    });
   },
 
   // Tasks (Definitions)
@@ -205,7 +218,39 @@ export const choreService = {
     }
   },
 
-  joinHouseholdByToken: async (token: string, userId: string) => {
+  createInvitation: async (householdId: string, email: string, invitedBy: string) => {
+    try {
+      const household = await choreService.getHousehold(householdId);
+      if (!household || !household.invitationToken) {
+        throw new Error('Household does not have an active invitation token. Please generate one first.');
+      }
+
+      const id = doc(collection(db, 'invitations')).id;
+      const createdAt = new Date();
+      const expiresAt = new Date();
+      expiresAt.setDate(createdAt.getDate() + 3); // 3 days expiration
+
+      const invitation: Invitation = {
+        id,
+        token: household.invitationToken,
+        householdId,
+        email,
+        role: 'user',
+        status: 'pending',
+        invitedBy,
+        createdAt: createdAt.toISOString(),
+        expiresAt: expiresAt.toISOString()
+      };
+
+      await setDoc(doc(db, 'invitations', id), invitation);
+      return invitation;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'invitations');
+      throw error;
+    }
+  },
+
+  joinHouseholdByToken: async (token: string, userId: string, userEmail?: string) => {
     try {
       const q = query(collection(db, HOUSEHOLDS_COLLECTION), where('invitationToken', '==', token));
       const snapshot = await getDocs(q);
@@ -221,6 +266,34 @@ export const choreService = {
         return household;
       }
 
+      // If an email is provided, check if there's a specific invitation for it
+      if (userEmail) {
+        const invQ = query(
+          collection(db, 'invitations'), 
+          where('token', '==', token),
+          where('email', '==', userEmail),
+          where('status', '==', 'pending')
+        );
+        const invSnapshot = await getDocs(invQ);
+        if (!invSnapshot.empty) {
+          const invDoc = invSnapshot.docs[0];
+          const invData = invDoc.data() as Invitation;
+          
+          // Check expiration
+          if (new Date(invData.expiresAt) < new Date()) {
+            await updateDoc(invDoc.ref, { status: 'expired' });
+            throw new Error('Invitation has expired');
+          }
+
+          // Mark as accepted
+          await updateDoc(invDoc.ref, { 
+            status: 'accepted',
+            acceptedAt: new Date().toISOString(),
+            acceptedByUid: userId
+          });
+        }
+      }
+
       // Update household members
       await updateDoc(doc(db, HOUSEHOLDS_COLLECTION, household.id), {
         members: arrayUnion(userId)
@@ -231,6 +304,9 @@ export const choreService = {
         householdIds: arrayUnion(household.id),
         currentHouseholdId: household.id
       });
+
+      // One-time use logic: Regenerate the token so the link used is now invalid
+      await choreService.generateInvitationToken(household.id);
 
       return household;
     } catch (error) {

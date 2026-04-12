@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, User as UserIcon, Home, ChevronRight, Save, X, Settings, Users, LogOut, TriangleAlert, Check, Link as LinkIcon, Copy, RefreshCw } from 'lucide-react';
+import { Shield, User as UserIcon, Home, ChevronRight, Save, X, Settings, Users, LogOut, TriangleAlert, Check, Link as LinkIcon, Copy, RefreshCw, Mail, Send } from 'lucide-react';
 import { signOut } from '../lib/firebase';
 
 const PROFILE_COLORS = [
@@ -53,6 +53,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, currentHous
   const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
   const [showCopySuccess, setShowCopySuccess] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [isSendingInvite, setIsSendingInvite] = useState(false);
+  const [inviteStatus, setInviteStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
   const isSystemAdmin = currentUser.role === 'system_admin';
   const isHouseholdAdmin = currentHousehold?.admins.includes(currentUser.id) || isSystemAdmin;
@@ -121,6 +124,40 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, currentHous
     navigator.clipboard.writeText(link);
     setShowCopySuccess(true);
     setTimeout(() => setShowCopySuccess(false), 2000);
+  };
+
+  const handleSendInvite = async () => {
+    if (!currentHousehold || !inviteEmail.trim()) return;
+    setIsSendingInvite(true);
+    setInviteStatus(null);
+    try {
+      // 1. Create invitation record in Firestore
+      await choreService.createInvitation(currentHousehold.id, inviteEmail.trim(), currentUser.id);
+      
+      // 2. Send email via server API
+      const inviteLink = `${window.location.origin}?invite=${currentHousehold.invitationToken}`;
+      const response = await fetch('/api/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          householdName: currentHousehold.name,
+          inviteLink,
+          invitedBy: currentUser.name
+        })
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to send invite');
+
+      setInviteStatus({ type: 'success', message: `Invite sent to ${inviteEmail}` });
+      setInviteEmail('');
+      setTimeout(() => setInviteStatus(null), 3000);
+    } catch (error) {
+      setInviteStatus({ type: 'error', message: (error as Error).message });
+    } finally {
+      setIsSendingInvite(false);
+    }
   };
 
   return (
@@ -251,6 +288,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, currentHous
                           )}
                         </AnimatePresence>
                       </div>
+
+                      {/* Invite by Email Section */}
+                      {isHouseholdAdmin && currentHousehold.invitationToken && (
+                        <div className="space-y-1.5 pt-4 border-t border-slate-100">
+                          <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Invite via Email</Label>
+                          <div className="flex gap-2">
+                            <div className="relative flex-1">
+                              <Input 
+                                type="email"
+                                placeholder="family@member.com"
+                                value={inviteEmail}
+                                onChange={(e) => setInviteEmail(e.target.value)}
+                                className="h-10 rounded-xl border-slate-200 focus:ring-indigo-500 pl-9 text-xs"
+                              />
+                              <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                            </div>
+                            <Button
+                              onClick={handleSendInvite}
+                              disabled={isSendingInvite || !inviteEmail.trim()}
+                              className="h-10 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-2"
+                            >
+                              {isSendingInvite ? (
+                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Send className="h-3.5 w-3.5" />
+                              )}
+                              Send
+                            </Button>
+                          </div>
+                          {inviteStatus && (
+                            <motion.p 
+                              initial={{ opacity: 0, y: -5 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className={cn(
+                                "text-[10px] font-medium ml-1",
+                                inviteStatus.type === 'success' ? "text-emerald-600" : "text-rose-600"
+                              )}
+                            >
+                              {inviteStatus.message}
+                            </motion.p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

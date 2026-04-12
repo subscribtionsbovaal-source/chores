@@ -82,7 +82,7 @@ export default function App() {
       const joinHousehold = async () => {
         setIsJoining(true);
         try {
-          const household = await choreService.joinHouseholdByToken(pendingInvite, currentUser.uid);
+          const household = await choreService.joinHouseholdByToken(pendingInvite, currentUser.uid, currentUser.email || undefined);
           if (household) {
             // Refresh profile to get updated household list and current household
             const updatedProfile = await choreService.getUser(currentUser.uid);
@@ -112,14 +112,13 @@ export default function App() {
 
     const householdId = userProfile.currentHouseholdId;
     
-    // Fetch current household details
-    choreService.getHousehold(householdId).then(setCurrentHousehold);
-
+    const unsubHousehold = choreService.subscribeToHousehold(householdId, setCurrentHousehold);
     const unsubTasks = choreService.subscribeToTasks(householdId, setTasks);
     const unsubInstances = choreService.subscribeToInstances(householdId, setInstances);
     const unsubUsers = choreService.subscribeToHouseholdUsers(householdId, setUsers);
 
     return () => {
+      unsubHousehold();
       unsubTasks();
       unsubInstances();
       unsubUsers();

@@ -62,6 +62,25 @@
         "completedBy": { "type": "string" }
       },
       "required": ["id", "taskId", "householdId", "dueDate"]
+      },
+    "Invitation": {
+      "title": "Invitation",
+      "description": "A specific email invitation to join a household",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "token": { "type": "string" },
+        "householdId": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "expired", "revoked"] },
+        "invitedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "acceptedAt": { "type": "string", "format": "date-time" },
+        "acceptedByUid": { "type": "string" }
+      },
+      "required": ["id", "token", "householdId", "email", "role", "status", "invitedBy", "createdAt", "expiresAt"]
     }
   },
   "firestore": {
@@ -80,6 +99,10 @@
     "/task_instances/{instanceId}": {
       "schema": "TaskInstance",
       "description": "Specific task occurrences"
+      },
+    "/invitations/{invitationId}": {
+      "schema": "Invitation",
+      "description": "Household email invitations"
     }
   }
 }
