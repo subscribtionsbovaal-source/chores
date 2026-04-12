@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A family member in the chore tracker",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "color": { "type": "string" },
+        "role": { "type": "string", "enum": ["system_admin", "user"] },
+        "householdIds": { "type": "array", "items": { "type": "string" } },
+        "currentHouseholdId": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "color", "role", "householdIds"]
+    },
+    "Household": {
+      "title": "Household",
+      "description": "A group of users sharing chores",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "members": { "type": "array", "items": { "type": "string" } },
+        "admins": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "invitationToken": { "type": "string" }
+      },
+      "required": ["id", "name", "createdBy", "members", "admins", "createdAt"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "A chore definition",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "householdId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "recurrence": { "type": "string", "enum": ["none", "daily", "weekly", "monthly", "custom"] },
+        "interval": { "type": "integer", "minimum": 1 },
+        "weekDays": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 6 } },
+        "recurrenceEndDate": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "householdId", "title", "recurrence", "createdBy", "createdAt"]
+    },
+    "TaskInstance": {
+      "title": "TaskInstance",
+      "description": "A specific occurrence of a task",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "taskId": { "type": "string" },
+        "householdId": { "type": "string" },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "assignedTo": { "type": "string" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "completedBy": { "type": "string" }
+      },
+      "required": ["id", "taskId", "householdId", "dueDate"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile information"
+    },
+    "/households/{householdId}": {
+      "schema": "Household",
+      "description": "Household group information"
+    },
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Task definitions"
+    },
+    "/task_instances/{instanceId}": {
+      "schema": "TaskInstance",
+      "description": "Specific task occurrences"
+    }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "Family Chore Tracker",
+  "description": "A state-of-the-art task tracker for family chores with a calendar-first interface, real-time updates, and task assignment capabilities.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,209 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId} (Firebase Auth UID)
+    // Fields:
+    //   - id: string (required) - Same as UID
+    //   - name: string (required, 1-50 chars)
+    //   - color: string (required, hex color)
+    //   - householdId: string (optional) - ID of the household the user belongs to
+    //
+    // Collection: households
+    // Document ID: {householdId}
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required, 1-100 chars)
+    //   - createdBy: string (required, UID)
+    //   - members: list (required, UIDs)
+    //   - createdAt: string (required, ISO 8601)
+    //
+    // Collection: tasks
+    // Document ID: {taskId}
+    // Fields:
+    //   - id: string (required)
+    //   - householdId: string (required)
+    //   - title: string (required, 1-100 chars)
+    //   - description: string (optional, 0-500 chars)
+    //   - recurrence: string (required, enum: none, daily, weekly, monthly, custom)
+    //   - interval: int (optional, minimum 1)
+    //   - weekDays: list (optional, 0-6)
+    //   - recurrenceEndDate: string (optional, ISO 8601)
+    //   - createdBy: string (required, UID)
+    //   - createdAt: string (required, ISO 8601)
+    //
+    // Collection: task_instances
+    // Document ID: {instanceId}
+    // Fields:
+    //   - id: string (required)
+    //   - taskId: string (required)
+    //   - householdId: string (required)
+    //   - dueDate: string (required, ISO 8601)
+    //   - assignedTo: string (optional, UID)
+    //   - completedAt: string (optional, ISO 8601)
+    //   - completedBy: string (optional, UID)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserData(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data;
+    }
+
+    function isSystemAdmin() {
+      return isAuthenticated() && (
+        getUserData(request.auth.uid).role == 'system_admin' ||
+        (request.auth.token.email == "subscribtions.bovaal@gmail.com" && request.auth.token.email_verified == true)
+      );
+    }
+
+    function getHouseholdData(householdId) {
+      return get(/databases/$(database)/documents/households/$(householdId)).data;
+    }
+
+    function isHouseholdAdmin(householdId) {
+      return isAuthenticated() && (
+        request.auth.uid in getHouseholdData(householdId).admins ||
+        isSystemAdmin()
+      );
+    }
+
+    function isHouseholdMember(householdId) {
+      return isAuthenticated() && (
+        request.auth.uid in getHouseholdData(householdId).members ||
+        isSystemAdmin()
+      );
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string &&
+        dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    function isValidHexColor(color) {
+      return color is string && color.matches("^#[0-9a-fA-F]{6}$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['id', 'name', 'email', 'color', 'role', 'householdIds']) &&
+             hasOnlyAllowedFields(['id', 'name', 'email', 'avatar', 'color', 'role', 'householdIds', 'currentHouseholdId']) &&
+             data.id is string &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 50 &&
+             data.email is string &&
+             isValidHexColor(data.color) &&
+             data.role in ['system_admin', 'user'] &&
+             data.householdIds is list;
+    }
+
+    function isValidHousehold(data) {
+      return hasRequiredFields(['id', 'name', 'createdBy', 'members', 'admins', 'createdAt']) &&
+             hasOnlyAllowedFields(['id', 'name', 'createdBy', 'members', 'admins', 'createdAt', 'invitationToken']) &&
+             data.id is string &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             data.createdBy is string &&
+             data.members is list && data.members.size() >= 1 &&
+             data.admins is list && data.admins.size() >= 1 &&
+             isValidDateString(data.createdAt) &&
+             (!('invitationToken' in data) || (data.invitationToken is string && data.invitationToken.size() > 0));
+    }
+
+    function isValidTask(data) {
+      return hasRequiredFields(['id', 'householdId', 'title', 'recurrence', 'createdBy', 'createdAt']) &&
+             hasOnlyAllowedFields(['id', 'householdId', 'title', 'description', 'recurrence', 'interval', 'weekDays', 'recurrenceEndDate', 'createdBy', 'createdAt']) &&
+             data.id is string &&
+             data.householdId is string &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 100 &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 500)) &&
+             data.recurrence in ['none', 'daily', 'weekly', 'monthly', 'custom'] &&
+             (!('interval' in data) || (data.interval is int && data.interval >= 1)) &&
+             (!('weekDays' in data) || (data.weekDays is list && data.weekDays.size() <= 7)) &&
+             (!('recurrenceEndDate' in data) || isValidDateString(data.recurrenceEndDate)) &&
+             data.createdBy is string &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidTaskInstance(data) {
+      return hasRequiredFields(['id', 'taskId', 'householdId', 'dueDate']) &&
+             hasOnlyAllowedFields(['id', 'taskId', 'householdId', 'dueDate', 'assignedTo', 'completedAt', 'completedBy']) &&
+             data.id is string &&
+             data.taskId is string &&
+             data.householdId is string &&
+             isValidDateString(data.dueDate) &&
+             (!('assignedTo' in data) || data.assignedTo is string) &&
+             (!('completedAt' in data) || isValidDateString(data.completedAt)) &&
+             (!('completedBy' in data) || data.completedBy is string);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
+                      (request.resource.data.role == 'user' || isSystemAdmin());
+      allow update: if (isOwner(userId) || isSystemAdmin() || (exists(/databases/$(database)/documents/households/$(resource.data.currentHouseholdId)) && request.auth.uid in getHouseholdData(resource.data.currentHouseholdId).admins)) && 
+                      isValidUser(request.resource.data) && 
+                      (request.resource.data.role == resource.data.role || isSystemAdmin());
+    }
+
+    match /households/{householdId} {
+      allow read: if isHouseholdMember(householdId);
+      allow list: if isAuthenticated() && request.query.limit <= 1 && request.query.filters.invitationToken != null;
+      allow create: if isAuthenticated() && isValidHousehold(request.resource.data);
+      allow update: if (isHouseholdAdmin(householdId) || 
+                       (isAuthenticated() && 
+                        request.resource.data.members.hasAll(resource.data.members) && 
+                        request.resource.data.members.size() == resource.data.members.size() + 1 && 
+                        request.auth.uid in request.resource.data.members && 
+                        request.resource.data.invitationToken == resource.data.invitationToken && 
+                        request.resource.data.invitationToken != null &&
+                        request.resource.data.name == resource.data.name &&
+                        request.resource.data.admins == resource.data.admins &&
+                        request.resource.data.createdBy == resource.data.createdBy &&
+                        request.resource.data.createdAt == resource.data.createdAt)) && 
+                      isValidHousehold(request.resource.data);
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isHouseholdMember(resource.data.householdId);
+      allow create: if isHouseholdMember(request.resource.data.householdId) && isValidTask(request.resource.data);
+      allow update: if isHouseholdMember(resource.data.householdId) && isValidTask(request.resource.data);
+      allow delete: if isHouseholdMember(resource.data.householdId);
+    }
+
+    match /task_instances/{instanceId} {
+      allow read: if isHouseholdMember(resource.data.householdId);
+      allow create: if isHouseholdMember(request.resource.data.householdId) && isValidTaskInstance(request.resource.data);
+      allow update: if isHouseholdMember(resource.data.householdId) && isValidTaskInstance(request.resource.data);
+      allow delete: if isHouseholdMember(resource.data.householdId);
+    }
+  }
+}
