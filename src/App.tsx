@@ -12,7 +12,7 @@ import { db, auth, signIn, signOut } from './lib/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { Task, User, TaskInstance, Household } from './types';
 import { motion, AnimatePresence } from 'motion/react';
-import { LayoutDashboard, Users, Settings, Bell, LogOut, LogIn, Plus, ChevronDown, Home } from 'lucide-react';
+import { Sparkles, Users, Settings, Bell, LogOut, LogIn, Plus, ChevronDown, Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { 
@@ -293,7 +293,7 @@ export default function App() {
           className="max-w-md w-full bg-white p-10 rounded-3xl shadow-2xl border border-slate-100 text-center"
         >
           <div className="w-20 h-20 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-xl shadow-indigo-200 mx-auto mb-8">
-            <LayoutDashboard className="text-white h-10 w-10" />
+            <Sparkles className="text-white h-10 w-10" />
           </div>
           <h1 className="text-3xl font-bold text-slate-900 mb-2">Welcome to ChoreFlow</h1>
           <p className="text-slate-500 mb-10">Organize your family chores with ease. Sign in to get started.</p>
@@ -361,7 +361,7 @@ export default function App() {
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col py-6 shadow-sm z-10">
         <div className="flex items-center gap-3 mb-8 pl-[34px] pr-6">
           <div className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center shadow-sm">
-            <LayoutDashboard className="text-indigo-600 h-5 w-5" />
+            <Sparkles className="text-indigo-600 h-5 w-5" />
           </div>
           <h1 className="text-xl font-bold tracking-tight">ChoreFlow</h1>
         </div>
@@ -493,6 +493,3 @@ export default function App() {
     </div>
   );
 }
-
-
-
