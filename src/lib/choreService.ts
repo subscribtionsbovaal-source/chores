@@ -263,6 +263,10 @@ export const choreService = {
       const household = { ...householdDoc.data(), id: householdDoc.id } as Household;
 
       if (household.members.includes(userId)) {
+        // Even if already a member, ensure it's the current household
+        await updateDoc(doc(db, USERS_COLLECTION, userId), {
+          currentHouseholdId: household.id
+        });
         return household;
       }
 
