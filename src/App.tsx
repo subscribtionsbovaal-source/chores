@@ -43,24 +43,38 @@ export default function App() {
   const [selectedInstance, setSelectedInstance] = useState<TaskInstance | null>(null);
   const [initialDate, setInitialDate] = useState<Date | undefined>(undefined);
   const [isJoining, setIsJoining] = useState(false);
-  const [pendingInvite, setPendingInvite] = useState<string | null>(null);
-
-  // Capture invite token from URL on mount
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const inviteToken = params.get('invite');
-    if (inviteToken) {
-      setPendingInvite(inviteToken);
-      // Store in session storage to persist across potential auth redirects
-      sessionStorage.setItem('pendingInvite', inviteToken);
-      // Clean URL immediately
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else {
-      const storedInvite = sessionStorage.getItem('pendingInvite');
-      if (storedInvite) {
-        setPendingInvite(storedInvite);
+  const [pendingInvite, setPendingInvite] = useState<string | null>(() => {
+    // Try to get from URL first
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const inviteToken = params.get('invite');
+      if (inviteToken) {
+        sessionStorage.setItem('pendingInvite', inviteToken);
+        return inviteToken;
       }
+      // Fallback to session storage
+      return sessionStorage.getItem('pendingInvite');
     }
+    return null;
+  });
+
+  // Capture invite token from URL on mount and clean URL
+  useEffect(() => {
+    const handleUrl = () => {
+      const params = new URLSearchParams(window.location.search);
+      const inviteToken = params.get('invite');
+      if (inviteToken) {
+        setPendingInvite(inviteToken);
+        sessionStorage.setItem('pendingInvite', inviteToken);
+        // Clean URL immediately
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    };
+
+    handleUrl();
+    // Listen for URL changes (e.g. if user clicks link while app is open)
+    window.addEventListener('popstate', handleUrl);
+    return () => window.removeEventListener('popstate', handleUrl);
   }, []);
 
   // Auth Listener
@@ -308,7 +322,8 @@ export default function App() {
     );
   }
 
-  if (isJoining || (pendingInvite && currentUser && userProfile)) {
+  // Show joining screen if we have a pending invite or are currently joining
+  if (isJoining || pendingInvite) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600 mb-4"></div>
@@ -317,7 +332,15 @@ export default function App() {
     );
   }
 
-  if (!userProfile?.currentHouseholdId) {
+  if (!userProfile) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-slate-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
+
+  if (!userProfile.currentHouseholdId) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-6">
         <motion.div 
@@ -492,3 +515,6 @@ export default function App() {
     </div>
   );
 }
+
+
+
