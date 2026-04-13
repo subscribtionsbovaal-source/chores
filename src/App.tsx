@@ -94,25 +94,38 @@ export default function App() {
   useEffect(() => {
     if (pendingInvite && currentUser && userProfile && !isJoining) {
       const joinHousehold = async () => {
+        console.log("[App] Starting joinHousehold process...");
         setIsJoining(true);
         try {
           const household = await choreService.joinHouseholdByToken(pendingInvite, currentUser.uid, currentUser.email || undefined);
           if (household) {
+            console.log("[App] Successfully joined household, refreshing profile...");
             // Refresh profile to get updated household list and current household
             const updatedProfile = await choreService.getUser(currentUser.uid);
-            setUserProfile(updatedProfile);
+            if (updatedProfile) {
+              console.log("[App] Profile refreshed with household:", updatedProfile.currentHouseholdId);
+              setUserProfile(updatedProfile);
+            }
           }
         } catch (error) {
-          console.error("Failed to join household:", error);
-        } finally {
+          console.error("[App] Failed to join household:", error);
+          // If it failed, we might want to clear the invite so they can at least use the app
           sessionStorage.removeItem('pendingInvite');
           setPendingInvite(null);
+        } finally {
+          console.log("[App] Finishing join process.");
+          // We clear these only after we've attempted the join
+          // If successful, userProfile update above should trigger re-render to dashboard
+          if (!pendingInvite) { // Only if not already cleared by catch
+             sessionStorage.removeItem('pendingInvite');
+             setPendingInvite(null);
+          }
           setIsJoining(false);
         }
       };
       joinHousehold();
     }
-  }, [currentUser, userProfile, isJoining, pendingInvite]);
+  }, [currentUser, userProfile?.id, isJoining, pendingInvite]);
 
   // Data Listeners
   useEffect(() => {
