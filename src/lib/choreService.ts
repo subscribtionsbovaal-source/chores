@@ -10,7 +10,8 @@ import {
   deleteDoc,
   updateDoc,
   getDoc,
-  arrayUnion
+  arrayUnion,
+  limit
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { Task, User, Household, TaskInstance, Invitation } from '../types';
@@ -251,19 +252,30 @@ export const choreService = {
   },
 
   joinHouseholdByToken: async (token: string, userId: string, userEmail?: string) => {
+    console.log(`[joinHouseholdByToken] Starting join process for user ${userId} with token ${token}`);
     try {
-      const q = query(collection(db, HOUSEHOLDS_COLLECTION), where('invitationToken', '==', token));
+      // Query for household with this token. 
+      // IMPORTANT: Security rules require limit(1) for this query.
+      const q = query(
+        collection(db, HOUSEHOLDS_COLLECTION), 
+        where('invitationToken', '==', token),
+        limit(1)
+      );
+      
+      console.log(`[joinHouseholdByToken] Querying for household...`);
       const snapshot = await getDocs(q);
       
       if (snapshot.empty) {
+        console.error('[joinHouseholdByToken] No household found with token:', token);
         throw new Error('Invalid invitation link');
       }
 
       const householdDoc = snapshot.docs[0];
       const household = { ...householdDoc.data(), id: householdDoc.id } as Household;
+      console.log(`[joinHouseholdByToken] Found household: ${household.name} (${household.id})`);
 
       if (household.members.includes(userId)) {
-        // Even if already a member, ensure it's the current household
+        console.log('[joinHouseholdByToken] User is already a member. Ensuring currentHouseholdId is set.');
         await updateDoc(doc(db, USERS_COLLECTION, userId), {
           currentHouseholdId: household.id
         });
@@ -272,24 +284,26 @@ export const choreService = {
 
       // If an email is provided, check if there's a specific invitation for it
       if (userEmail) {
+        console.log(`[joinHouseholdByToken] Checking for specific invitation for ${userEmail}`);
         const invQ = query(
           collection(db, 'invitations'), 
           where('token', '==', token),
           where('email', '==', userEmail),
-          where('status', '==', 'pending')
+          where('status', '==', 'pending'),
+          limit(1)
         );
         const invSnapshot = await getDocs(invQ);
         if (!invSnapshot.empty) {
           const invDoc = invSnapshot.docs[0];
           const invData = invDoc.data() as Invitation;
           
-          // Check expiration
           if (new Date(invData.expiresAt) < new Date()) {
+            console.warn('[joinHouseholdByToken] Specific invitation expired');
             await updateDoc(invDoc.ref, { status: 'expired' });
             throw new Error('Invitation has expired');
           }
 
-          // Mark as accepted
+          console.log('[joinHouseholdByToken] Accepting specific invitation');
           await updateDoc(invDoc.ref, { 
             status: 'accepted',
             acceptedAt: new Date().toISOString(),
@@ -299,21 +313,22 @@ export const choreService = {
       }
 
       // Update household members
+      console.log('[joinHouseholdByToken] Adding user to household members...');
       await updateDoc(doc(db, HOUSEHOLDS_COLLECTION, household.id), {
         members: arrayUnion(userId)
       });
 
       // Update user households
+      console.log('[joinHouseholdByToken] Updating user profile...');
       await updateDoc(doc(db, USERS_COLLECTION, userId), {
         householdIds: arrayUnion(household.id),
         currentHouseholdId: household.id
       });
 
-      // One-time use logic: Regenerate the token so the link used is now invalid
-      await choreService.generateInvitationToken(household.id);
-
+      console.log('[joinHouseholdByToken] Join successful!');
       return household;
     } catch (error) {
+      console.error('[joinHouseholdByToken] Error:', error);
       handleFirestoreError(error, OperationType.UPDATE, HOUSEHOLDS_COLLECTION);
       throw error;
     }
