@@ -47,6 +47,19 @@ service cloud.firestore {
     //   - completedAt: string (optional, ISO 8601)
     //   - completedBy: string (optional, UID)
     //
+    // Collection: invitations
+    // Document ID: {invitationId}
+    // Fields:
+    //   - id: string (required)
+    //   - token: string (required)
+    //   - householdId: string (required)
+    //   - email: string (required)
+    //   - role: string (required)
+    //   - status: string (required, enum: pending, accepted, expired, revoked)
+    //   - invitedBy: string (required, UID)
+    //   - createdAt: string (required, ISO 8601)
+    //   - expiresAt: string (required, ISO 8601)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -67,8 +80,9 @@ service cloud.firestore {
 
     function isSystemAdmin() {
       return isAuthenticated() && (
-        getUserData(request.auth.uid).role == 'system_admin' ||
-        (request.auth.token.email == "subscribtions.bovaal@gmail.com" && request.auth.token.email_verified == true)
+        request.auth.token.email == "subscribtions.bovaal@gmail.com" ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         getUserData(request.auth.uid).role == 'system_admin')
       );
     }
 
@@ -78,15 +92,17 @@ service cloud.firestore {
 
     function isHouseholdAdmin(householdId) {
       return isAuthenticated() && (
-        request.auth.uid in getHouseholdData(householdId).admins ||
-        isSystemAdmin()
+        isSystemAdmin() ||
+        (exists(/databases/$(database)/documents/households/$(householdId)) && 
+         request.auth.uid in getHouseholdData(householdId).admins)
       );
     }
 
     function isHouseholdMember(householdId) {
       return isAuthenticated() && (
-        request.auth.uid in getHouseholdData(householdId).members ||
-        isSystemAdmin()
+        isSystemAdmin() ||
+        (exists(/databases/$(database)/documents/households/$(householdId)) && 
+         request.auth.uid in getHouseholdData(householdId).members)
       );
     }
 
@@ -99,8 +115,10 @@ service cloud.firestore {
     }
 
     function isValidDateString(dateStr) {
-      return dateStr is string &&
-        dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+      return dateStr is string && (
+        dateStr.matches("^\\d{4}-\\d{2}-\\d{2}$") || 
+        dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T.*")
+      );
     }
 
     function isValidHexColor(color) {
@@ -144,7 +162,7 @@ service cloud.firestore {
              data.recurrence in ['none', 'daily', 'weekly', 'monthly', 'custom'] &&
              (!('interval' in data) || (data.interval is int && data.interval >= 1)) &&
              (!('weekDays' in data) || (data.weekDays is list && data.weekDays.size() <= 7)) &&
-             (!('recurrenceEndDate' in data) || isValidDateString(data.recurrenceEndDate)) &&
+             (!('recurrenceEndDate' in data) || data.recurrenceEndDate == "" || isValidDateString(data.recurrenceEndDate)) &&
              data.createdBy is string &&
              isValidDateString(data.createdAt);
     }
@@ -156,9 +174,25 @@ service cloud.firestore {
              data.taskId is string &&
              data.householdId is string &&
              isValidDateString(data.dueDate) &&
-             (!('assignedTo' in data) || data.assignedTo is string) &&
-             (!('completedAt' in data) || isValidDateString(data.completedAt)) &&
-             (!('completedBy' in data) || data.completedBy is string);
+             (!('assignedTo' in data) || data.assignedTo == null || data.assignedTo is string) &&
+             (!('completedAt' in data) || data.completedAt == null || isValidDateString(data.completedAt)) &&
+             (!('completedBy' in data) || data.completedBy == null || data.completedBy is string);
+    }
+
+    function isValidInvitation(data) {
+      return hasRequiredFields(['id', 'token', 'householdId', 'email', 'role', 'status', 'invitedBy', 'createdAt', 'expiresAt']) &&
+             hasOnlyAllowedFields(['id', 'token', 'householdId', 'email', 'role', 'status', 'invitedBy', 'createdAt', 'expiresAt', 'acceptedAt', 'acceptedByUid']) &&
+             data.id is string &&
+             data.token is string &&
+             data.householdId is string &&
+             data.email is string &&
+             data.role in ['admin', 'user'] &&
+             data.status in ['pending', 'accepted', 'expired', 'revoked'] &&
+             data.invitedBy is string &&
+             isValidDateString(data.createdAt) &&
+             isValidDateString(data.expiresAt) &&
+             (!('acceptedAt' in data) || isValidDateString(data.acceptedAt)) &&
+             (!('acceptedByUid' in data) || data.acceptedByUid is string);
     }
 
     // ===============================================================
@@ -204,6 +238,17 @@ service cloud.firestore {
       allow create: if isHouseholdMember(request.resource.data.householdId) && isValidTaskInstance(request.resource.data);
       allow update: if isHouseholdMember(resource.data.householdId) && isValidTaskInstance(request.resource.data);
       allow delete: if isHouseholdMember(resource.data.householdId);
+    }
+
+    match /invitations/{invitationId} {
+      allow read: if isAuthenticated();
+      allow create: if isHouseholdAdmin(request.resource.data.householdId) && isValidInvitation(request.resource.data);
+      allow update: if (isHouseholdAdmin(resource.data.householdId) || 
+                       (isAuthenticated() && 
+                        request.resource.data.status == 'accepted' && 
+                        resource.data.status == 'pending' &&
+                        request.resource.data.acceptedByUid == request.auth.uid)) && 
+                      isValidInvitation(request.resource.data);
     }
   }
 }

@@ -21,6 +21,19 @@ export interface Household {
   invitationToken?: string;
 }
 
+export interface Invitation {
+  id: string;
+  token: string;
+  householdId: string;
+  email: string;
+  role: string;
+  status: 'pending' | 'accepted' | 'expired' | 'revoked';
+  invitedBy: string;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt?: string;
+  acceptedByUid?: string;
+}
 export type TaskRecurrence = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
 
 export interface Task {

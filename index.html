@@ -5,24 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>ChoreFlow | Family Tracker</title>
     <meta name="theme-color" content="#4f46e5" />
-    <script>
-      // Fix for "Cannot set property fetch of #<Window> which has only a getter"
-      // This happens when some library tries to polyfill fetch but it's already defined and read-only.
-      (function() {
-        try {
-          const descriptor = Object.getOwnPropertyDescriptor(window, 'fetch');
-          if (descriptor && !descriptor.writable && descriptor.configurable) {
-            Object.defineProperty(window, 'fetch', {
-              value: window.fetch,
-              writable: true,
-              configurable: true
-            });
-          }
-        } catch (e) {
-          // Ignore errors
-        }
-      })();
-    </script>
     <link rel="apple-touch-icon" href="https://picsum.photos/seed/choreflow-180/180/180" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
