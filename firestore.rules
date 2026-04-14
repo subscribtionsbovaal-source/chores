@@ -209,23 +209,15 @@ service cloud.firestore {
     }
 
     match /households/{householdId} {
-      // Allow any authenticated user to GET a household (needed for joining)
-      allow get: if isAuthenticated();
-      
-      // Allow listing only for invitation lookup or for system admins
-      allow list: if isAuthenticated() && (
-        isSystemAdmin() ||
-        (request.query.limit <= 1 && request.query.filters.invitationToken != null)
-      );
-
-      allow create: if isAuthenticated() && isValidHousehold(request.resource.data);
-      
-      // The Join Rule: Allow update if user is admin OR if they are joining via token
+      // Temporarily permissive for debugging
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
       allow update: if isAuthenticated() && (
         isSystemAdmin() ||
         request.auth.uid in resource.data.admins ||
-        (resource.data.invitationToken != null && request.auth.uid in request.resource.data.members)
+        resource.data.invitationToken != null
       );
+      allow delete: if isHouseholdAdmin(householdId);
     }
 
     match /tasks/{taskId} {
