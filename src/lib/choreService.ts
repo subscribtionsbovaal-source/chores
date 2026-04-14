@@ -313,17 +313,19 @@ export const choreService = {
       }
 
       // Update household members
-      console.log('[joinHouseholdByToken] Adding user to household members...');
+      console.log(`[joinHouseholdByToken] Attempting to add user ${userId} to household ${household.id} members...`);
       await updateDoc(doc(db, HOUSEHOLDS_COLLECTION, household.id), {
         members: arrayUnion(userId)
       });
+      console.log('[joinHouseholdByToken] Household members updated successfully.');
 
       // Update user households
-      console.log('[joinHouseholdByToken] Updating user profile...');
+      console.log(`[joinHouseholdByToken] Attempting to update user profile for ${userId}...`);
       await updateDoc(doc(db, USERS_COLLECTION, userId), {
         householdIds: arrayUnion(household.id),
         currentHouseholdId: household.id
       });
+      console.log('[joinHouseholdByToken] User profile updated successfully.');
 
       console.log('[joinHouseholdByToken] Join successful!');
       return household;
