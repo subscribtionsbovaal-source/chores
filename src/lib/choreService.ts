@@ -16,35 +16,59 @@ import {
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { Task, User, Household, TaskInstance, Invitation } from '../types';
 
+// --- Firestore Collection Names ---
+// These constants define the names of the collections in the Firestore database.
 const TASKS_COLLECTION = 'tasks';
 const USERS_COLLECTION = 'users';
 const HOUSEHOLDS_COLLECTION = 'households';
 const INSTANCES_COLLECTION = 'task_instances';
 
+/**
+ * choreService: A centralized service for interacting with the Firestore database.
+ * This service handles all CRUD (Create, Read, Update, Delete) operations for
+ * households, tasks, task instances, users, and invitations.
+ */
 export const choreService = {
-  // Households
+  // --- Household Management ---
+  // Functions for managing household data and membership.
+
+  /**
+   * Fetches a single household document by its ID.
+   * @param id - The unique identifier of the household.
+   * @returns The household data if found, or null if it doesn't exist.
+   */
   getHousehold: async (id: string) => {
     try {
       const docRef = doc(db, HOUSEHOLDS_COLLECTION, id);
       const docSnap = await getDoc(docRef);
       return docSnap.exists() ? { ...docSnap.data(), id: docSnap.id } as Household : null;
     } catch (error) {
+      // Log and throw a structured error for the AIS Agent to diagnose
       handleFirestoreError(error, OperationType.GET, `${HOUSEHOLDS_COLLECTION}/${id}`);
     }
   },
 
+  /**
+   * Creates a new household and assigns the creator as the first member and admin.
+   * @param name - The display name of the new household.
+   * @param userId - The ID of the user creating the household.
+   * @returns The newly created household object.
+   */
   createHousehold: async (name: string, userId: string) => {
+    // Generate a new unique ID for the household
     const id = doc(collection(db, HOUSEHOLDS_COLLECTION)).id;
     const household: Household = {
       id,
       name,
       createdBy: userId,
       members: [userId],
-      admins: [userId], // Creator is Household Admin
+      admins: [userId], // The creator is automatically granted Household Admin privileges
       createdAt: new Date().toISOString(),
     };
     try {
+      // 1. Create the household document
       await setDoc(doc(db, HOUSEHOLDS_COLLECTION, id), household);
+      // 2. Update the user's profile to include this new household ID
       await updateDoc(doc(db, USERS_COLLECTION, userId), { 
         householdIds: arrayUnion(id),
         currentHouseholdId: id 
@@ -55,6 +79,11 @@ export const choreService = {
     }
   },
 
+  /**
+   * Updates an existing household's metadata (e.g., name, admin list).
+   * @param id - The ID of the household to update.
+   * @param data - Partial household data containing the fields to change.
+   */
   updateHousehold: async (id: string, data: Partial<Household>) => {
     try {
       await updateDoc(doc(db, HOUSEHOLDS_COLLECTION, id), data);
@@ -63,6 +92,12 @@ export const choreService = {
     }
   },
 
+  /**
+   * Sets up a real-time listener for a specific household document.
+   * @param id - The ID of the household to listen to.
+   * @param callback - Function called whenever the household data changes.
+   * @returns An unsubscribe function to stop listening.
+   */
   subscribeToHousehold: (id: string, callback: (household: Household | null) => void) => {
     const docRef = doc(db, HOUSEHOLDS_COLLECTION, id);
     return onSnapshot(docRef, (docSnap) => {
@@ -76,7 +111,15 @@ export const choreService = {
     });
   },
 
-  // Tasks (Definitions)
+  // --- Task Definitions (Templates) ---
+  // Functions for managing the "blueprints" of tasks (recurrence, title, etc.).
+
+  /**
+   * Listens to all task definitions within a specific household.
+   * @param householdId - The ID of the household whose tasks to fetch.
+   * @param callback - Function called with the updated list of tasks.
+   * @returns An unsubscribe function.
+   */
   subscribeToTasks: (householdId: string, callback: (tasks: Task[]) => void) => {
     const q = query(
       collection(db, TASKS_COLLECTION), 
@@ -91,22 +134,35 @@ export const choreService = {
     });
   },
 
+  /**
+   * Saves or updates a task definition.
+   * @param task - Partial task data. If it has an ID, it updates; otherwise, it creates.
+   */
   saveTask: async (task: Partial<Task>) => {
     const id = task.id || doc(collection(db, TASKS_COLLECTION)).id;
     const taskRef = doc(db, TASKS_COLLECTION, id);
     try {
-      // Clean undefined values
+      // Clean undefined values to prevent Firestore errors
       const data = { ...task, id };
       Object.keys(data).forEach(key => {
         if ((data as any)[key] === undefined) delete (data as any)[key];
       });
+      // Use merge: true to allow partial updates without overwriting the whole document
       await setDoc(taskRef, data, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `${TASKS_COLLECTION}/${id}`);
     }
   },
 
-  // Task Instances (Occurrences)
+  // --- Task Instances (Calendar Occurrences) ---
+  // Functions for managing specific instances of tasks assigned to dates.
+
+  /**
+   * Listens to all task instances (calendar entries) for a household.
+   * @param householdId - The ID of the household.
+   * @param callback - Function called with the updated list of instances.
+   * @returns An unsubscribe function.
+   */
   subscribeToInstances: (householdId: string, callback: (instances: TaskInstance[]) => void) => {
     const q = query(
       collection(db, INSTANCES_COLLECTION),
@@ -120,6 +176,10 @@ export const choreService = {
     });
   },
 
+  /**
+   * Saves or updates a specific task instance (e.g., marking it complete or assigning it).
+   * @param instance - Partial instance data.
+   */
   saveInstance: async (instance: Partial<TaskInstance>) => {
     const id = instance.id || doc(collection(db, INSTANCES_COLLECTION)).id;
     const instanceRef = doc(db, INSTANCES_COLLECTION, id);
@@ -136,6 +196,10 @@ export const choreService = {
     }
   },
 
+  /**
+   * Deletes a specific task instance from the calendar.
+   * @param id - The ID of the instance to delete.
+   */
   deleteInstance: async (id: string) => {
     try {
       await deleteDoc(doc(db, INSTANCES_COLLECTION, id));
@@ -144,6 +208,11 @@ export const choreService = {
     }
   },
 
+  /**
+   * Deletes all instances associated with a parent task definition.
+   * Useful when a recurring task is deleted entirely.
+   * @param taskId - The ID of the parent task.
+   */
   deleteInstancesByTaskId: async (taskId: string) => {
     try {
       const q = query(collection(db, INSTANCES_COLLECTION), where('taskId', '==', taskId));
@@ -155,6 +224,10 @@ export const choreService = {
     }
   },
 
+  /**
+   * Deletes a task definition template.
+   * @param taskId - The ID of the task to delete.
+   */
   deleteTask: async (taskId: string) => {
     try {
       await deleteDoc(doc(db, TASKS_COLLECTION, taskId));
@@ -163,7 +236,15 @@ export const choreService = {
     }
   },
 
-  // Users
+  // --- User Profile & Membership ---
+  // Functions for managing user data and their relationship to households.
+
+  /**
+   * Listens to all users who are members of a specific household.
+   * @param householdId - The ID of the household.
+   * @param callback - Function called with the list of member users.
+   * @returns An unsubscribe function.
+   */
   subscribeToHouseholdUsers: (householdId: string, callback: (users: User[]) => void) => {
     const q = query(collection(db, USERS_COLLECTION), where('householdIds', 'array-contains', householdId));
     return onSnapshot(q, (snapshot) => {
@@ -174,14 +255,70 @@ export const choreService = {
     });
   },
 
+  /**
+   * Listens to a single user's profile for real-time updates.
+   * @param id - The user ID.
+   * @param callback - Function called with the updated user data.
+   * @returns An unsubscribe function.
+   */
+  subscribeToUserProfile: (id: string, callback: (user: User | null) => void) => {
+    const docRef = doc(db, USERS_COLLECTION, id);
+    return onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        callback({ ...docSnap.data(), id: docSnap.id } as User);
+      } else {
+        callback(null);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `${USERS_COLLECTION}/${id}`);
+    });
+  },
+
+  /**
+   * Updates a user's profile data.
+   * @param id - The unique ID of the user.
+   * @param data - Partial user data to update.
+   */
   updateUser: async (id: string, data: Partial<User>) => {
     try {
-      await updateDoc(doc(db, USERS_COLLECTION, id), data);
+      // 1. Fetch the existing document to ensure we have the complete dataset
+      const userRef = doc(db, USERS_COLLECTION, id);
+      const userDoc = await getDoc(userRef);
+      
+      if (!userDoc.exists()) {
+        throw new Error('User document not found');
+      }
+
+      const existingData = userDoc.data() as User;
+
+      // 2. Merge existing data with new updates
+      // We clean the incoming data of undefined values first
+      const updates = { ...data };
+      Object.keys(updates).forEach(key => {
+        if ((updates as any)[key] === undefined) delete (updates as any)[key];
+      });
+
+      const fullData: User = {
+        ...existingData,
+        ...updates,
+        id // Ensure ID remains consistent
+      };
+      
+      // 3. Perform a full update (setDoc) to satisfy integrity requirements in security rules.
+      // This ensures request.resource.data in Firestore rules is the complete object,
+      // avoiding "Missing or insufficient permissions" errors caused by partial updates
+      // failing schema validation.
+      await setDoc(userRef, fullData);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `${USERS_COLLECTION}/${id}`);
     }
   },
 
+  /**
+   * Fetches all users in the system.
+   * Restricted: Usually only callable by System Admins via security rules.
+   * @returns A list of all users.
+   */
   getAllUsers: async () => {
     try {
       const snapshot = await getDocs(collection(db, USERS_COLLECTION));
@@ -191,6 +328,11 @@ export const choreService = {
     }
   },
 
+  /**
+   * Fetches all households in the system.
+   * Restricted: Usually only callable by System Admins via security rules.
+   * @returns A list of all households.
+   */
   getAllHouseholds: async () => {
     try {
       const snapshot = await getDocs(collection(db, HOUSEHOLDS_COLLECTION));
@@ -200,6 +342,11 @@ export const choreService = {
     }
   },
 
+  /**
+   * Fetches a single user's profile by ID.
+   * @param id - The user ID.
+   * @returns The user data or null.
+   */
   getUser: async (id: string) => {
     try {
       const docSnap = await getDoc(doc(db, USERS_COLLECTION, id));
@@ -209,6 +356,15 @@ export const choreService = {
     }
   },
 
+  // --- Invitation & Joining System ---
+  // Functions for generating invite links and processing new members.
+
+  /**
+   * Generates a new random invitation token for a household.
+   * This token is used in the URL to identify the household to join.
+   * @param householdId - The ID of the household.
+   * @returns The generated token string.
+   */
   generateInvitationToken: async (householdId: string) => {
     const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
     try {
@@ -219,8 +375,17 @@ export const choreService = {
     }
   },
 
+  /**
+   * Creates a specific invitation record for an email address.
+   * This allows tracking who was invited and ensuring they use the correct link.
+   * @param householdId - The ID of the household.
+   * @param email - The email address of the person being invited.
+   * @param invitedBy - The ID of the user sending the invite.
+   * @returns The created invitation object.
+   */
   createInvitation: async (householdId: string, email: string, invitedBy: string) => {
     try {
+      // 1. Ensure the household has an active token
       const household = await choreService.getHousehold(householdId);
       if (!household || !household.invitationToken) {
         throw new Error('Household does not have an active invitation token. Please generate one first.');
@@ -229,7 +394,7 @@ export const choreService = {
       const id = doc(collection(db, 'invitations')).id;
       const createdAt = new Date();
       const expiresAt = new Date();
-      expiresAt.setDate(createdAt.getDate() + 3); // 3 days expiration
+      expiresAt.setDate(createdAt.getDate() + 3); // Invitations expire after 3 days
 
       const invitation: Invitation = {
         id,
@@ -243,6 +408,7 @@ export const choreService = {
         expiresAt: expiresAt.toISOString()
       };
 
+      // 2. Save the invitation document
       await setDoc(doc(db, 'invitations', id), invitation);
       return invitation;
     } catch (error) {
@@ -251,18 +417,25 @@ export const choreService = {
     }
   },
 
+  /**
+   * Processes a user joining a household using an invitation token.
+   * This is a multi-step process that updates both the household and the user's profile.
+   * @param token - The invitation token from the URL.
+   * @param userId - The ID of the user who is joining.
+   * @param userEmail - Optional email to verify against specific invitations.
+   * @returns The household object that was joined.
+   */
   joinHouseholdByToken: async (token: string, userId: string, userEmail?: string) => {
     console.log(`[joinHouseholdByToken] Starting join process for user ${userId} with token ${token}`);
     try {
-      // Query for household with this token. 
-      // IMPORTANT: Security rules require limit(1) for this query.
+      // 1. Find the household that owns this token.
+      // Security rules require limit(1) to prevent broad scanning.
       const q = query(
         collection(db, HOUSEHOLDS_COLLECTION), 
         where('invitationToken', '==', token),
         limit(1)
       );
       
-      console.log(`[joinHouseholdByToken] Querying for household...`);
       const snapshot = await getDocs(q);
       
       if (snapshot.empty) {
@@ -274,6 +447,7 @@ export const choreService = {
       const household = { ...householdDoc.data(), id: householdDoc.id } as Household;
       console.log(`[joinHouseholdByToken] Found household: ${household.name} (${household.id})`);
 
+      // 2. Check if the user is already a member
       if (household.members.includes(userId)) {
         console.log('[joinHouseholdByToken] User is already a member. Ensuring currentHouseholdId is set.');
         await updateDoc(doc(db, USERS_COLLECTION, userId), {
@@ -282,7 +456,7 @@ export const choreService = {
         return household;
       }
 
-      // If an email is provided, check if there's a specific invitation for it
+      // 3. If an email is provided, check for a matching pending invitation
       if (userEmail) {
         console.log(`[joinHouseholdByToken] Checking for specific invitation for ${userEmail}`);
         const invQ = query(
@@ -297,12 +471,14 @@ export const choreService = {
           const invDoc = invSnapshot.docs[0];
           const invData = invDoc.data() as Invitation;
           
+          // Check for expiration
           if (new Date(invData.expiresAt) < new Date()) {
             console.warn('[joinHouseholdByToken] Specific invitation expired');
             await updateDoc(invDoc.ref, { status: 'expired' });
             throw new Error('Invitation has expired');
           }
 
+          // Mark the invitation as accepted
           console.log('[joinHouseholdByToken] Accepting specific invitation');
           await updateDoc(invDoc.ref, { 
             status: 'accepted',
@@ -312,20 +488,18 @@ export const choreService = {
         }
       }
 
-      // Update household members
+      // 4. Update the Household's member list
       console.log(`[joinHouseholdByToken] Attempting to add user ${userId} to household ${household.id} members...`);
       await updateDoc(doc(db, HOUSEHOLDS_COLLECTION, household.id), {
         members: arrayUnion(userId)
       });
-      console.log('[joinHouseholdByToken] Household members updated successfully.');
 
-      // Update user households
+      // 5. Update the User's profile to include the new household
       console.log(`[joinHouseholdByToken] Attempting to update user profile for ${userId}...`);
       await updateDoc(doc(db, USERS_COLLECTION, userId), {
         householdIds: arrayUnion(household.id),
         currentHouseholdId: household.id
       });
-      console.log('[joinHouseholdByToken] User profile updated successfully.');
 
       console.log('[joinHouseholdByToken] Join successful!');
       return household;
@@ -336,12 +510,20 @@ export const choreService = {
     }
   },
 
+  /**
+   * Synchronizes the local Firestore user profile with the Firebase Auth user.
+   * Creates a new profile if one doesn't exist, and enforces System Admin roles.
+   * @param firebaseUser - The user object from Firebase Authentication.
+   * @returns The synchronized User profile object.
+   */
   syncUserProfile: async (firebaseUser: any) => {
     const userRef = doc(db, USERS_COLLECTION, firebaseUser.uid);
     const userDoc = await getDoc(userRef);
     
+    // Check if this user is the designated System Administrator
     const isSystemAdmin = firebaseUser.email === "subscribtions.bovaal@gmail.com";
 
+    // Case 1: User is logging in for the first time (No Firestore document)
     if (!userDoc.exists()) {
       const newUser: User = {
         id: firebaseUser.uid,
@@ -357,14 +539,30 @@ export const choreService = {
       } catch (error) {
         handleFirestoreError(error, OperationType.CREATE, `${USERS_COLLECTION}/${firebaseUser.uid}`);
       }
-    } else {
+    } 
+    // Case 2: User already exists in Firestore
+    else {
       const existingData = userDoc.data() as User;
-      // Ensure system admin role is synced if email matches
+      const updates: any = {};
+      
+      // Enforce System Admin role if the email matches the admin email
       if (isSystemAdmin && existingData.role !== 'system_admin') {
-        await updateDoc(userRef, { role: 'system_admin' });
-        return { ...existingData, role: 'system_admin' };
+        updates.role = 'system_admin';
       }
+      
+      // Backfill missing required fields for older accounts to satisfy security rules
+      if (!existingData.id) updates.id = firebaseUser.uid;
+      if (!existingData.householdIds) updates.householdIds = [];
+      if (!existingData.color) updates.color = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+      
+      // Only perform a write if there are actual changes to sync
+      if (Object.keys(updates).length > 0) {
+        await updateDoc(userRef, updates);
+        return { ...existingData, ...updates };
+      }
+      
       return existingData;
     }
   }
 };
+

@@ -28,6 +28,7 @@ import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { addDays, addWeeks, addMonths, isBefore, parseISO, format, startOfWeek, differenceInWeeks } from 'date-fns';
 
 export default function App() {
+  // --- State Management ---
   const [tasks, setTasks] = useState<Task[]>([]);
   const [instances, setInstances] = useState<TaskInstance[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -44,6 +45,7 @@ export default function App() {
   const [initialDate, setInitialDate] = useState<Date | undefined>(undefined);
   const [isJoining, setIsJoining] = useState(false);
   const [pendingInvite, setPendingInvite] = useState<string | null>(() => {
+    // --- Invitation Token Initialization ---
     // Try to get from URL first
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -58,6 +60,7 @@ export default function App() {
     return null;
   });
 
+  // --- URL Invitation Handler ---
   // Capture invite token from URL on mount and clean URL
   useEffect(() => {
     const handleUrl = () => {
@@ -77,19 +80,50 @@ export default function App() {
     return () => window.removeEventListener('popstate', handleUrl);
   }, []);
 
+  // --- Authentication State Listener ---
   // Auth Listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
-      if (user) {
-        const profile = await choreService.syncUserProfile(user);
-        setUserProfile(profile);
-      }
       setIsAuthReady(true);
     });
     return () => unsubscribe();
   }, []);
 
+  // --- Profile Synchronization & Real-time Subscription ---
+  // This effect ensures that the user's profile is synced with Auth and
+  // that we listen for real-time changes (e.g. from SettingsModal).
+  useEffect(() => {
+    if (!currentUser) {
+      setUserProfile(null);
+      return;
+    }
+
+    let active = true;
+    let unsub: (() => void) | undefined;
+    
+    const setup = async () => {
+      // 1. Ensure profile exists and is synced (e.g. System Admin role enforcement)
+      await choreService.syncUserProfile(currentUser);
+      
+      if (!active) return;
+
+      // 2. Subscribe to real-time profile updates
+      // This allows the homescreen to instantly reflect changes made in SettingsModal
+      unsub = choreService.subscribeToUserProfile(currentUser.uid, (profile) => {
+        if (active) setUserProfile(profile);
+      });
+    };
+    
+    setup();
+
+    return () => {
+      active = false;
+      if (unsub) unsub();
+    };
+  }, [currentUser]);
+
+  // --- Household Invitation Process ---
   // Handle Invitation Link
   useEffect(() => {
     if (currentUser && userProfile && pendingInvite && !isJoining) {
@@ -122,6 +156,7 @@ export default function App() {
     }
   }, [currentUser, userProfile?.id, pendingInvite]);
 
+  // --- Real-time Data Listeners ---
   // Data Listeners
   useEffect(() => {
     if (!currentUser || !userProfile?.currentHouseholdId) {
@@ -147,6 +182,7 @@ export default function App() {
     };
   }, [currentUser, userProfile?.currentHouseholdId]);
 
+  // --- Household Creation Handler ---
   const handleCreateHousehold = async () => {
     if (!currentUser || !newHouseholdName.trim()) return;
     try {
@@ -160,6 +196,7 @@ export default function App() {
     }
   };
 
+  // --- Task Interaction Handlers ---
   const handleAddTask = (date: Date) => {
     setSelectedInstance(null);
     setInitialDate(date);
@@ -172,6 +209,7 @@ export default function App() {
     setTimeout(() => setIsDialogOpen(true), 10);
   };
 
+  // --- Task Saving Logic (Creation & Recurrence) ---
   const handleSaveTask = async (taskData: any) => {
     if (!currentUser || !userProfile?.currentHouseholdId) {
       console.error("Auth or household missing", { currentUser, userProfile });
@@ -281,6 +319,7 @@ export default function App() {
     }
   };
 
+  // --- Task Deletion Handler ---
   const handleDeleteTask = async (id: string, deleteAll?: boolean) => {
     try {
       if (deleteAll) {
@@ -297,6 +336,7 @@ export default function App() {
     }
   };
 
+  // --- Loading State View ---
   if (!isAuthReady) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-slate-50">
@@ -305,6 +345,7 @@ export default function App() {
     );
   }
 
+  // --- Authentication Required View ---
   if (!currentUser) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-6">
@@ -330,6 +371,7 @@ export default function App() {
     );
   }
 
+  // --- Joining Household Transition View ---
   // Show joining screen if we have a pending invite AND user is logged in
   if (isJoining || (pendingInvite && currentUser)) {
     return (
@@ -340,6 +382,7 @@ export default function App() {
     );
   }
 
+  // --- Profile Loading View ---
   if (!userProfile) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-slate-50">
@@ -348,6 +391,7 @@ export default function App() {
     );
   }
 
+  // --- Household Onboarding View ---
   if (!userProfile.currentHouseholdId) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-6">
@@ -385,10 +429,12 @@ export default function App() {
     );
   }
 
+  // --- Main Application Layout ---
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-slate-200 flex flex-col py-6 shadow-sm z-10">
+        {/* Logo Section */}
         <div className="flex items-center gap-3 mb-8 pl-[34px] pr-6">
           <div className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center shadow-sm">
             <Sparkles className="text-indigo-600 h-5 w-5" />
@@ -396,6 +442,7 @@ export default function App() {
           <h1 className="text-xl font-bold tracking-tight">ChoreFlow</h1>
         </div>
 
+        {/* Primary Actions */}
         <div className="flex-1 space-y-2 pl-[34px] pr-6">
           <Button 
             onClick={() => handleAddTask(new Date())}
@@ -408,6 +455,7 @@ export default function App() {
           </Button>
         </div>
 
+        {/* User & Household Context */}
         <div className="mt-auto pt-5 px-6">
           <div className="space-y-2 mb-2">
             {userProfile && (
@@ -430,6 +478,7 @@ export default function App() {
             )}
           </div>
           
+          {/* Household Selector */}
           <div className="mb-2">
             <DropdownMenu>
               <DropdownMenuTrigger render={
@@ -465,6 +514,7 @@ export default function App() {
             </DropdownMenu>
           </div>
           
+          {/* Settings Trigger */}
           <Button 
             variant="ghost" 
             onClick={() => {
@@ -481,7 +531,7 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Main Content */}
+      {/* Main Content Area */}
       <main className="flex-1 p-6 overflow-hidden flex flex-col">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
@@ -498,6 +548,7 @@ export default function App() {
         </motion.div>
       </main>
 
+      {/* Modals & Dialogs */}
       <TaskDialog 
         isOpen={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}

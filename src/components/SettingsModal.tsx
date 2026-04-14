@@ -34,14 +34,20 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, currentHousehold, onClose, initialEditingUser }) => {
+  // --- View & Editing State ---
   const [view, setView] = useState<'menu' | 'edit_user' | 'system_admin'>('menu');
   const [editingUser, setEditingUser] = useState<User | null>(initialEditingUser || null);
+  
+  // --- Household Management State ---
   const [householdName, setHouseholdName] = useState('');
   const [householdAdmins, setHouseholdAdmins] = useState<string[]>([]);
   
+  // --- Data & Lists State ---
   const [householdUsers, setHouseholdUsers] = useState<User[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [allHouseholds, setAllHouseholds] = useState<Household[]>([]);
+  
+  // --- Interaction & Feedback State ---
   const [pendingRoleChange, setPendingRoleChange] = useState<{
     userId: string;
     userName: string;
@@ -57,9 +63,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
   const [isSendingInvite, setIsSendingInvite] = useState(false);
   const [inviteStatus, setInviteStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
+  // --- Role Helpers ---
   const isSystemAdmin = currentUser.role === 'system_admin';
   const isHouseholdAdmin = currentHousehold?.admins.includes(currentUser.id) || isSystemAdmin;
 
+  // --- Effect: Sync Household Data ---
   useEffect(() => {
     if (currentHousehold) {
       setHouseholdName(currentHousehold.name);
@@ -69,6 +77,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
     }
   }, [currentHousehold]);
 
+  // --- Effect: Load System Admin Data ---
   useEffect(() => {
     if (isSystemAdmin && view === 'system_admin') {
       const loadAll = async () => {
@@ -81,11 +90,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
     }
   }, [isSystemAdmin, view]);
 
+  // --- Effect: Reset UI States on User Change ---
   useEffect(() => {
     setIsColorPickerOpen(false);
     setIsRoleDropdownOpen(false);
   }, [editingUser?.id]);
 
+  // --- Handler: Update User Profile ---
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
@@ -99,6 +110,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
     setEditingUser(null);
   };
 
+  // --- Handler: Update Household Settings ---
   const handleUpdateHousehold = async () => {
     if (!currentHousehold) return;
     await choreService.updateHousehold(currentHousehold.id, {
@@ -108,6 +120,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
     });
   };
 
+  // --- Handler: Invitation Link Generation ---
   const handleGenerateToken = async () => {
     if (!currentHousehold) return;
     setIsGenerating(true);
@@ -118,6 +131,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
     }
   };
 
+  // --- Handler: Copy Link to Clipboard ---
   const handleCopyLink = () => {
     if (!currentHousehold?.invitationToken) return;
     const link = `${window.location.origin}?invite=${currentHousehold.invitationToken}`;
@@ -126,6 +140,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
     setTimeout(() => setShowCopySuccess(false), 2000);
   };
 
+  // --- Handler: Send Email Invitation ---
   const handleSendInvite = async () => {
     if (!currentHousehold || !inviteEmail.trim()) return;
     setIsSendingInvite(true);
@@ -167,7 +182,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
         animate={{ opacity: 1, scale: 1, y: 0 }}
         className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-slate-100 flex flex-col max-h-[90vh]"
       >
-        {/* Header */}
+        {/* --- Modal Header --- */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
@@ -185,7 +200,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
           </Button>
         </div>
 
-        {/* Content */}
+        {/* --- Modal Content --- */}
         <div className="flex-1 overflow-y-auto p-6 [scrollbar-gutter:stable]">
           <AnimatePresence mode="wait">
             {view === 'menu' && (
@@ -196,7 +211,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                 exit={{ opacity: 0, x: 20 }}
                 className="space-y-6"
               >
-                {/* Household Settings & Info */}
+                {/* --- Household Settings Section --- */}
                 {currentHousehold && (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between px-1">
@@ -228,7 +243,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                         />
                       </div>
 
-                      {/* Invitation Link */}
+                      {/* --- Invitation Link Sub-section --- */}
                       {isHouseholdAdmin && (
                         <div className="space-y-1.5 pt-2">
                           <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Invitation Link</Label>
@@ -286,7 +301,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                         </div>
                       )}
 
-                      {/* Invite by Email Section */}
+                      {/* --- Email Invitation Sub-section --- */}
                       {currentHousehold.invitationToken && (
                         <div className="space-y-1.5 pt-4 border-t border-slate-100">
                           <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Invite via Email</Label>
@@ -332,14 +347,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                   </div>
                 )}
 
-                {/* Household Members */}
+                {/* --- Household Members List --- 
+                    This section displays all members of the current household.
+                    Users can view everyone, but can only edit themselves unless they are an admin.
+                */}
                 {currentHousehold && (
                   <div className="mt-8">
                     <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 px-1">Household Members</h3>
                     <div className="space-y-3">
+                      {/* Map through each user in the household to create a list item */}
                       {householdUsers.map(user => {
+                        // Check if this specific user is currently being edited in the UI
                         const isEditing = editingUser?.id === user.id;
-                        const canEdit = isHouseholdAdmin || user.id === currentUser.id;
+                        
+                        // Determine if the logged-in user has permission to edit this member's profile.
+                        // Permissions: System Admins can edit anyone, Household Admins can edit members whose active household 
+                        // matches the one they manage, and regular users can only edit their own profile.
+                        const canEdit = isSystemAdmin || (isHouseholdAdmin && user.currentHouseholdId === currentHousehold?.id) || user.id === currentUser.id;
+                        
+                        // Check if any changes have been made to the user's data during editing
+                        // to enable/disable the 'Save' button later.
                         const hasChanges = isEditing && (
                           editingUser.name !== user.name || 
                           editingUser.color !== user.color || 
@@ -356,18 +383,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                 : "border-slate-50 bg-slate-50/50 hover:bg-white hover:border-slate-200"
                             )}
                           >
+                            {/* --- Member Row Header ---
+                                Displays basic user info (avatar, name, email) and the Edit toggle.
+                            */}
                             <div 
                               className={cn(
                                 "flex items-center justify-between p-3 transition-colors group/header",
                                 canEdit && "cursor-pointer hover:bg-white/40"
                               )}
                               onClick={() => {
+                                // Clicking the row toggles the edit form if the user has permission
                                 if (canEdit) {
                                   setEditingUser(isEditing ? null : user);
                                 }
                               }}
                             >
                               <div className="flex items-center gap-3">
+                                {/* User Avatar with their assigned color */}
                                 <div 
                                   className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm group-hover/header:scale-105 transition-transform" 
                                   style={{ backgroundColor: user.color }}
@@ -377,9 +409,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                 <div>
                                   <div className="flex items-center gap-2">
                                     <p className="text-sm font-bold text-slate-900 group-hover/header:text-indigo-600 transition-colors">{user.name}</p>
+                                    {/* 'You' badge for the currently logged-in user */}
                                     {user.id === currentUser.id && (
                                       <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-600 text-[8px] font-bold uppercase tracking-wider">You</span>
                                     )}
+                                    {/* 'Admin' badge if the user is a household administrator */}
                                     {householdAdmins.includes(user.id) && (
                                       <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-600 text-[8px] font-bold uppercase tracking-wider">Admin</span>
                                     )}
@@ -387,11 +421,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                   <p className="text-[10px] text-slate-500 font-medium">{user.email}</p>
                                 </div>
                               </div>
+                              {/* Edit Button: Only shown if the user has permission to edit this profile */}
                               {canEdit && (
                                 <Button 
                                   variant={isEditing ? "ghost" : "outline"} 
                                   size="sm" 
                                   onClick={(e) => {
+                                    // Prevent the row's onClick from firing twice
                                     e.stopPropagation();
                                     setEditingUser(isEditing ? null : user);
                                   }}
@@ -405,6 +441,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                               )}
                             </div>
 
+                            {/* --- Inline Edit Form ---
+                                This section expands when 'isEditing' is true.
+                            */}
                             <AnimatePresence>
                               {isEditing && (
                                 <motion.div
@@ -415,6 +454,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                 >
                                   <form onSubmit={handleUpdateUser} className="p-4 pt-0 space-y-4 border-t border-indigo-100/50 mt-1">
                                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4">
+                                      {/* Full Name Input Field */}
                                       <div className="space-y-1.5">
                                         <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Full Name</Label>
                                         <Input 
@@ -424,11 +464,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                         />
                                       </div>
 
-                                      {/* Household Role Selector (Only for Household Admins) */}
-                                      {isHouseholdAdmin && currentHousehold && (
+                                      {/* Household Role Selector:
+                                          Allows promoting or demoting users between 'User' and 'Admin' roles.
+                                          Only visible to Household or System Admins.
+                                      */}
+                                      {(isSystemAdmin || isHouseholdAdmin) && currentHousehold && (
                                         <div className="space-y-1.5">
                                           <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Household Role</Label>
                                           <div className="relative">
+                                            {/* Dropdown Trigger Button */}
                                             <button
                                               type="button"
                                               onClick={() => setIsRoleDropdownOpen(!isRoleDropdownOpen)}
@@ -440,6 +484,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                               <ChevronRight className={cn("h-5 w-5 text-slate-400 transition-transform", isRoleDropdownOpen && "rotate-90")} />
                                             </button>
 
+                                            {/* Role Selection Dropdown Menu */}
                                             <AnimatePresence>
                                               {isRoleDropdownOpen && (
                                                 <motion.div
@@ -452,6 +497,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                                     { id: 'user', label: 'User', icon: UserIcon },
                                                     { id: 'admin', label: 'Admin', icon: Shield }
                                                   ].map((role) => {
+                                                    // Check if this role is the one currently assigned to the user
                                                     const isSelected = (role.id === 'admin' && householdAdmins.includes(editingUser.id)) || 
                                                                      (role.id === 'user' && !householdAdmins.includes(editingUser.id));
                                                     return (
@@ -462,18 +508,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                                           const newRole = role.id;
                                                           const isAdmin = householdAdmins.includes(editingUser.id);
                                                           
+                                                          // Logic for demoting an Admin to a regular User
                                                           if (newRole === 'user' && isAdmin) {
+                                                            // Prevent removing the last admin from the household
                                                             if (householdAdmins.length <= 1) {
                                                               setShowAdminError(true);
                                                               return;
                                                             }
+                                                            // Set pending state to trigger a confirmation dialog (handled elsewhere in the component)
                                                             setPendingRoleChange({
                                                               userId: editingUser.id,
                                                               userName: editingUser.name,
                                                               newRole: 'User',
                                                               isGlobal: false
                                                             });
-                                                          } else if (newRole === 'admin' && !isAdmin) {
+                                                          } 
+                                                          // Logic for promoting a User to an Admin
+                                                          else if (newRole === 'admin' && !isAdmin) {
                                                             setPendingRoleChange({
                                                               userId: editingUser.id,
                                                               userName: editingUser.name,
@@ -503,14 +554,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                         </div>
                                       )}
 
+                                      {/* Profile Color Picker:
+                                          Allows users to choose a custom color for their avatar and calendar tasks.
+                                      */}
                                       <div className="space-y-1.5">
                                         <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Profile Color</Label>
                                         <div className="relative">
+                                          {/* Color Picker Trigger Button */}
                                           <button
                                             type="button"
                                             onClick={() => setIsColorPickerOpen(!isColorPickerOpen)}
                                             className="w-full h-10 rounded-xl border border-slate-200 px-3 flex items-center gap-3 bg-white hover:border-indigo-300 transition-all"
                                           >
+                                            {/* Preview of the currently selected color */}
                                             <div 
                                               className="w-5 h-5 rounded-full shadow-sm" 
                                               style={{ backgroundColor: editingUser.color }}
@@ -519,6 +575,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                             <ChevronRight className={cn("h-5 w-5 ml-auto text-slate-400 transition-transform", isColorPickerOpen && "rotate-90")} />
                                           </button>
 
+                                          {/* Color Selection Grid */}
                                           <AnimatePresence>
                                             {isColorPickerOpen && (
                                               <motion.div
@@ -527,11 +584,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                                 exit={{ opacity: 0, y: -10, scale: 0.95 }}
                                                 className="absolute top-full left-0 right-0 z-10 mt-2 p-3 bg-white rounded-2xl shadow-xl border border-slate-100 grid grid-cols-5 gap-2"
                                               >
+                                                {/* Map through predefined PROFILE_COLORS constants */}
                                                 {PROFILE_COLORS.map((color) => (
                                                   <button
                                                     key={color.value}
                                                     type="button"
                                                     onClick={() => {
+                                                      // Update the local editing state with the new color
                                                       setEditingUser({ ...editingUser, color: color.value });
                                                       setIsColorPickerOpen(false);
                                                     }}
@@ -542,6 +601,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                                     style={{ backgroundColor: color.value }}
                                                     title={color.name}
                                                   >
+                                                    {/* Checkmark overlay for the active selection */}
                                                     {editingUser.color === color.value && <Check className="h-5 w-5 text-white" />}
                                                   </button>
                                                 ))}
@@ -552,6 +612,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                       </div>
                                     </div>
 
+                                    {/* Role Description Hint:
+                                        Explains what the 'Admin' vs 'User' roles mean in practice.
+                                    */}
                                     {isHouseholdAdmin && currentHousehold && (
                                       <p className="text-[9px] text-slate-500 ml-1 -mt-2">
                                         {householdAdmins.includes(editingUser.id) 
@@ -560,6 +623,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                       </p>
                                     )}
 
+                                    {/* Form Action Buttons: Cancel and Save */}
                                     <div className="flex gap-2 pt-2">
                                       <Button 
                                         type="button" 
@@ -594,8 +658,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                   </div>
                 )}
 
-                {/* Footer Actions */}
+                {/* --- Footer Actions (Admin & Sign Out) --- 
+                    This section contains global actions like switching to System Admin view or signing out.
+                */}
                 <div className="pt-6 border-t border-slate-100 mt-8 flex items-center gap-3">
+                  {/* System Admin Button:
+                      Only visible to users with the 'system_admin' role.
+                      Switches the modal view to the global administration panel.
+                  */}
                   {isSystemAdmin && (
                     <Button 
                       variant="ghost" 
@@ -607,6 +677,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                     </Button>
                   )}
                   
+                  {/* Sign Out Button:
+                      Triggers the Firebase Auth signOut process and closes the modal.
+                  */}
                   <Button 
                     variant="ghost" 
                     onClick={() => signOut()} 
@@ -619,6 +692,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
               </motion.div>
             )}
 
+            {/* --- System Administration View --- */}
             {view === 'system_admin' && (
               <motion.div 
                 key="system_admin"
@@ -696,7 +770,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                   );
                                   
                                   return (
-                                    <form onSubmit={handleUpdateUser} className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                                                         <form 
+                                       onSubmit={async (e) => {
+                                         e.preventDefault();
+                                         await handleUpdateUser(e);
+                                         if (isSystemAdmin && view === 'system_admin') {
+                                           const users = await choreService.getAllUsers();
+                                           if (users) setAllUsers(users);
+                                         }
+                                       }} 
+                                       className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-100"
+                                     >
+
                                       <div className="grid grid-cols-3 gap-4">
                                         <div className="space-y-1.5">
                                           <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Name</Label>

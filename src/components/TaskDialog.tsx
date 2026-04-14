@@ -33,6 +33,7 @@ import {
 import { Task, User, TaskInstance, TaskRecurrence } from '../types';
 import { format, addDays, addWeeks, addMonths as addMonthsDate } from 'date-fns';
 
+// --- Form Validation Schema ---
 const taskSchema = z.object({
   title: z.string().min(1, 'Title is required').max(50, 'Title too long'),
   description: z.string().max(200, 'Description too long').optional(),
@@ -67,6 +68,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
   users,
   initialDate 
 }) => {
+  // --- Form Initialization ---
   const {
     register,
     handleSubmit,
@@ -88,6 +90,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
     }
   });
 
+  // --- Effect: Populate Form on Edit or New ---
   useEffect(() => {
     if (task) {
       const taskDef = tasks.find(t => t.id === task.taskId);
@@ -120,6 +123,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
   const recurrence = watch('recurrence');
   const selectedWeekDays = watch('weekDays') || [];
 
+  // --- Handler: Custom Recurrence Weekday Toggle ---
   const toggleWeekDay = (day: number) => {
     const current = selectedWeekDays;
     if (current.includes(day)) {
@@ -132,6 +136,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
 
+  // --- Handler: Form Submission ---
   const onSubmit = async (data: TaskFormValues) => {
     setSaveError(null);
     try {
@@ -146,18 +151,21 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[425px] rounded-2xl p-5 max-h-[96vh] overflow-y-auto">
+        {/* --- Dialog Header --- */}
         <DialogHeader className="space-y-1">
           <DialogTitle className="text-xl font-bold text-slate-900">
             {task ? 'Edit Task' : 'Create New Task'}
           </DialogTitle>
         </DialogHeader>
         
+        {/* --- Task Form --- */}
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3 py-1">
           {saveError && (
             <div className="p-2 bg-red-50 border border-red-200 rounded-xl text-xs text-red-600 font-medium animate-in fade-in zoom-in-95">
               {saveError}
             </div>
           )}
+          {/* --- Title & Description --- */}
           <div className="space-y-1">
             <Label htmlFor="title" className="text-xs font-semibold text-slate-700">Task Title</Label>
             <Input 
@@ -174,6 +182,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
             <Input id="description" placeholder="Any specific details?" {...register('description')} className="h-10" />
           </div>
 
+          {/* --- Date & Assignee --- */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label htmlFor="dueDate" className="text-xs font-semibold text-slate-700">
@@ -218,6 +227,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
             </div>
           </div>
 
+          {/* --- Recurrence Settings --- */}
           <div className="space-y-3 pt-2 border-t border-slate-100">
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-slate-700">Recurrence</Label>
@@ -241,6 +251,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
               </div>
             </div>
 
+            {/* --- Custom Recurrence Options --- */}
             {recurrence === 'custom' && (
               <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
                 <div className="space-y-1.5">
@@ -306,6 +317,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
               </div>
             )}
 
+            {/* --- Recurrence End Date --- */}
             {recurrence !== 'none' && (
               <div className="space-y-1 animate-in fade-in slide-in-from-top-2 duration-200">
                 <Label htmlFor="recurrenceEndDate" className="text-xs font-semibold text-slate-700">
@@ -322,9 +334,11 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
             )}
           </div>
 
+          {/* --- Dialog Footer (Actions) --- */}
           <DialogFooter className="flex gap-2 pt-2">
             {task && onDelete && (
               <>
+                {/* --- Delete Action --- */}
                 <Button 
                   type="button" 
                   variant="destructive" 
@@ -342,6 +356,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
                   Delete
                 </Button>
 
+                {/* --- Recurring Delete Confirmation --- */}
                 <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
                   <AlertDialogContent className="rounded-2xl">
                     <AlertDialogHeader>
