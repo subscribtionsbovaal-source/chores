@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar } from './components/Calendar';
 import { TaskDialog } from './components/TaskDialog';
-import { AdminPanel } from './components/AdminPanel';
+import { SettingsModal } from './components/SettingsModal';
 import { choreService } from './lib/choreService';
 import { db, auth, signIn, signOut } from './lib/firebase';
 import { collection, doc } from 'firebase/firestore';
@@ -38,7 +38,7 @@ export default function App() {
   const [newHouseholdName, setNewHouseholdName] = useState('');
   
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [userToEdit, setUserToEdit] = useState<User | null>(null);
   const [selectedInstance, setSelectedInstance] = useState<TaskInstance | null>(null);
   const [initialDate, setInitialDate] = useState<Date | undefined>(undefined);
@@ -410,24 +410,24 @@ export default function App() {
 
         <div className="mt-auto pt-5 px-6">
           <div className="space-y-2 mb-2">
-            {users.map(user => (
+            {userProfile && (
               <div 
-                key={user.id} 
+                key={userProfile.id} 
                 className="flex items-center gap-3 pl-[10px] h-12 group cursor-pointer"
                 onClick={() => {
-                  setUserToEdit(user);
-                  setIsAdminPanelOpen(true);
+                  setUserToEdit(userProfile);
+                  setIsSettingsOpen(true);
                 }}
               >
                 <div 
                   className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm transition-transform group-hover:scale-110" 
-                  style={{ backgroundColor: user.color }}
+                  style={{ backgroundColor: userProfile.color }}
                 >
-                  {user.name[0]}
+                  {userProfile.name[0]}
                 </div>
-                <span className="text-sm font-medium text-slate-600 group-hover:text-slate-900">{user.name}</span>
+                <span className="text-sm font-medium text-slate-600 group-hover:text-slate-900">{userProfile.name}</span>
               </div>
-            ))}
+            )}
           </div>
           
           <div className="mb-2">
@@ -469,14 +469,14 @@ export default function App() {
             variant="ghost" 
             onClick={() => {
               setUserToEdit(null);
-              setIsAdminPanelOpen(true);
+              setIsSettingsOpen(true);
             }}
             className="w-full h-12 pl-[10px] pr-2 rounded-xl transition-all flex items-center justify-start gap-3 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 group border border-transparent hover:border-indigo-100"
           >
             <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-sm group-hover:border-indigo-200 transition-colors">
               <Settings className="h-5 w-5 text-slate-500 group-hover:text-indigo-600 transition-colors" />
             </div>
-            <span className="text-sm font-medium">Admin Panel</span>
+            <span className="text-sm font-medium">Settings</span>
           </Button>
         </div>
       </aside>
@@ -509,13 +509,13 @@ export default function App() {
         initialDate={initialDate}
       />
 
-      {isAdminPanelOpen && userProfile && (
-        <AdminPanel 
+      {isSettingsOpen && userProfile && (
+        <SettingsModal 
           currentUser={userProfile}
           currentHousehold={currentHousehold}
           initialEditingUser={userToEdit}
           onClose={() => {
-            setIsAdminPanelOpen(false);
+            setIsSettingsOpen(false);
             setUserToEdit(null);
           }}
         />
