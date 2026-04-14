@@ -92,7 +92,7 @@ export default function App() {
 
   // Handle Invitation Link
   useEffect(() => {
-    if (pendingInvite && currentUser && userProfile && !isJoining) {
+    if (currentUser && userProfile && pendingInvite && !isJoining) {
       const joinHousehold = async () => {
         console.log("[App] Starting joinHousehold process...");
         setIsJoining(true);
@@ -106,26 +106,21 @@ export default function App() {
               console.log("[App] Profile refreshed with household:", updatedProfile.currentHouseholdId);
               setUserProfile(updatedProfile);
             }
+          } else {
+            console.warn("[App] Token not found or invalid.");
           }
         } catch (error) {
           console.error("[App] Failed to join household:", error);
-          // If it failed, we might want to clear the invite so they can at least use the app
+        } finally {
+          console.log("[App] Finishing join process. Clearing invite.");
           sessionStorage.removeItem('pendingInvite');
           setPendingInvite(null);
-        } finally {
-          console.log("[App] Finishing join process.");
-          // We clear these only after we've attempted the join
-          // If successful, userProfile update above should trigger re-render to dashboard
-          if (!pendingInvite) { // Only if not already cleared by catch
-             sessionStorage.removeItem('pendingInvite');
-             setPendingInvite(null);
-          }
           setIsJoining(false);
         }
       };
       joinHousehold();
     }
-  }, [currentUser, userProfile?.id, isJoining, pendingInvite]);
+  }, [currentUser, userProfile?.id, pendingInvite]);
 
   // Data Listeners
   useEffect(() => {
@@ -335,8 +330,8 @@ export default function App() {
     );
   }
 
-  // Show joining screen if we have a pending invite or are currently joining
-  if (isJoining || pendingInvite) {
+  // Show joining screen if we have a pending invite AND user is logged in
+  if (isJoining || (pendingInvite && currentUser)) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600 mb-4"></div>
