@@ -1,0 +1,7 @@
+    /* match /households/{householdId} {
+      // Temporarily permissive for debugging
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated() && (isSystemAdmin() || request.auth.uid in resource.data.admins);
+      */
