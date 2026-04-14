@@ -26,14 +26,14 @@ const getColorName = (hex: string) => {
   return PROFILE_COLORS.find(c => c.value.toLowerCase() === hex.toLowerCase())?.name || 'Custom';
 };
 
-interface AdminPanelProps {
+interface SettingsModalProps {
   currentUser: User;
   currentHousehold: Household | null;
   onClose: () => void;
   initialEditingUser?: User | null;
 }
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, currentHousehold, onClose, initialEditingUser }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, currentHousehold, onClose, initialEditingUser }) => {
   const [view, setView] = useState<'menu' | 'edit_user' | 'system_admin'>('menu');
   const [editingUser, setEditingUser] = useState<User | null>(initialEditingUser || null);
   const [householdName, setHouseholdName] = useState('');
@@ -174,7 +174,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, currentHous
               <Settings className="text-white h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-900">Admin Panel</h2>
+              <h2 className="text-lg font-bold text-slate-900">Settings</h2>
               <p className="text-xs text-slate-500 font-medium">
                 {isSystemAdmin ? 'System Administrator' : isHouseholdAdmin ? 'Household Administrator' : 'User Settings'}
               </p>
@@ -228,26 +228,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, currentHous
                         />
                       </div>
 
-                      <div className="space-y-1.5 pt-2">
-                        <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Invitation Link</Label>
-                        {currentHousehold.invitationToken ? (
-                          <div className="flex gap-2">
-                            <div className="relative flex-1">
-                              <Input 
-                                readOnly
-                                value={`${window.location.origin}?invite=${currentHousehold.invitationToken}`}
-                                className="h-10 rounded-xl border-slate-200 bg-slate-50 pr-10 text-xs font-mono text-slate-500"
-                              />
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={handleCopyLink}
-                                className="absolute right-1 top-1 h-8 w-8 rounded-lg hover:bg-slate-200"
-                              >
-                                {showCopySuccess ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4 text-slate-400" />}
-                              </Button>
-                            </div>
-                            {isHouseholdAdmin && (
+                      {/* Invitation Link */}
+                      {isHouseholdAdmin && (
+                        <div className="space-y-1.5 pt-2">
+                          <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Invitation Link</Label>
+                          {currentHousehold.invitationToken ? (
+                            <div className="flex gap-2">
+                              <div className="relative flex-1">
+                                <Input 
+                                  readOnly
+                                  value={`${window.location.origin}?invite=${currentHousehold.invitationToken}`}
+                                  className="h-10 rounded-xl border-slate-200 bg-slate-50 pr-10 text-xs font-mono text-slate-500"
+                                />
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={handleCopyLink}
+                                  className="absolute right-1 top-1 h-8 w-8 rounded-lg hover:bg-slate-200"
+                                >
+                                  {showCopySuccess ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4 text-slate-400" />}
+                                </Button>
+                              </div>
                               <Button
                                 variant="outline"
                                 size="icon"
@@ -258,39 +259,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, currentHous
                               >
                                 <RefreshCw className={cn("h-4 w-4 text-slate-400", isGenerating && "animate-spin")} />
                               </Button>
-                            )}
-                          </div>
-                        ) : isHouseholdAdmin ? (
-                          <Button
-                            variant="outline"
-                            onClick={handleGenerateToken}
-                            disabled={isGenerating}
-                            className="w-full h-10 rounded-xl border-dashed border-slate-300 text-slate-500 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50/30 gap-2 font-bold text-xs"
-                          >
-                            <LinkIcon className="h-4 w-4" />
-                            {isGenerating ? 'Generating...' : 'Generate Invitation Link'}
-                          </Button>
-                        ) : (
-                          <div className="p-3 rounded-xl bg-slate-100 border border-slate-200 text-center">
-                            <p className="text-[10px] font-medium text-slate-500 italic">No invitation link generated yet. Ask an admin to create one.</p>
-                          </div>
-                        )}
-                        <AnimatePresence>
-                          {showCopySuccess && (
-                            <motion.div
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: 10 }}
-                              className="absolute left-1/2 -translate-x-1/2 bottom-8 px-3 py-1.5 bg-slate-900 text-white text-[10px] font-bold rounded-lg shadow-xl z-[70]"
+                            </div>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              onClick={handleGenerateToken}
+                              disabled={isGenerating}
+                              className="w-full h-10 rounded-xl border-dashed border-slate-300 text-slate-500 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50/30 gap-2 font-bold text-xs"
                             >
-                              Link copied to clipboard!
-                            </motion.div>
+                              <LinkIcon className="h-4 w-4" />
+                              {isGenerating ? 'Generating...' : 'Generate Invitation Link'}
+                            </Button>
                           )}
-                        </AnimatePresence>
-                      </div>
+                          <AnimatePresence>
+                            {showCopySuccess && (
+                              <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 10 }}
+                                className="absolute left-1/2 -translate-x-1/2 bottom-8 px-3 py-1.5 bg-slate-900 text-white text-[10px] font-bold rounded-lg shadow-xl z-[70]"
+                              >
+                                Link copied to clipboard!
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      )}
 
                       {/* Invite by Email Section */}
-                      {isHouseholdAdmin && currentHousehold.invitationToken && (
+                      {currentHousehold.invitationToken && (
                         <div className="space-y-1.5 pt-4 border-t border-slate-100">
                           <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Invite via Email</Label>
                           <div className="flex gap-2">
@@ -336,12 +333,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, currentHous
                 )}
 
                 {/* Household Members */}
-                {isHouseholdAdmin && currentHousehold && (
+                {currentHousehold && (
                   <div className="mt-8">
                     <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 px-1">Household Members</h3>
                     <div className="space-y-3">
                       {householdUsers.map(user => {
                         const isEditing = editingUser?.id === user.id;
+                        const canEdit = isHouseholdAdmin || user.id === currentUser.id;
                         const hasChanges = isEditing && (
                           editingUser.name !== user.name || 
                           editingUser.color !== user.color || 
@@ -359,8 +357,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, currentHous
                             )}
                           >
                             <div 
-                              className="flex items-center justify-between p-3 cursor-pointer hover:bg-white/40 transition-colors group/header"
-                              onClick={() => setEditingUser(isEditing ? null : user)}
+                              className={cn(
+                                "flex items-center justify-between p-3 transition-colors group/header",
+                                canEdit && "cursor-pointer hover:bg-white/40"
+                              )}
+                              onClick={() => {
+                                if (canEdit) {
+                                  setEditingUser(isEditing ? null : user);
+                                }
+                              }}
                             >
                               <div className="flex items-center gap-3">
                                 <div 
@@ -382,20 +387,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, currentHous
                                   <p className="text-[10px] text-slate-500 font-medium">{user.email}</p>
                                 </div>
                               </div>
-                              <Button 
-                                variant={isEditing ? "ghost" : "outline"} 
-                                size="sm" 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingUser(isEditing ? null : user);
-                                }}
-                                className={cn(
-                                  "h-8 rounded-lg text-xs font-semibold",
-                                  isEditing && "text-slate-500 hover:text-slate-700"
-                                )}
-                              >
-                                {isEditing ? <X className="h-5 w-5" /> : 'Edit'}
-                              </Button>
+                              {canEdit && (
+                                <Button 
+                                  variant={isEditing ? "ghost" : "outline"} 
+                                  size="sm" 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingUser(isEditing ? null : user);
+                                  }}
+                                  className={cn(
+                                    "h-8 rounded-lg text-xs font-semibold",
+                                    isEditing && "text-slate-500 hover:text-slate-700"
+                                  )}
+                                >
+                                  {isEditing ? <X className="h-5 w-5" /> : 'Edit'}
+                                </Button>
+                              )}
                             </div>
 
                             <AnimatePresence>
