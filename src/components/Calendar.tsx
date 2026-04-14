@@ -27,11 +27,13 @@ interface CalendarProps {
 }
 
 export const Calendar: React.FC<CalendarProps> = ({ instances, tasks, users, onAddTask, onEditTask }) => {
+  // --- Date State & Navigation ---
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
   const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
   const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
 
+  // --- Calendar Grid Calculation ---
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(monthStart);
   const startDate = startOfWeek(monthStart, { weekStartsOn: 1 });
@@ -42,6 +44,7 @@ export const Calendar: React.FC<CalendarProps> = ({ instances, tasks, users, onA
     end: endDate,
   });
 
+  // --- Helper Functions for Data Mapping ---
   const getInstancesForDay = (day: Date) => {
     return instances.filter(instance => isSameDay(new Date(instance.dueDate), day));
   };
@@ -56,7 +59,7 @@ export const Calendar: React.FC<CalendarProps> = ({ instances, tasks, users, onA
 
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-      {/* Header */}
+      {/* --- Calendar Header (Month Navigation) --- */}
       <div className="flex items-center justify-between px-8 py-6 border-bottom border-slate-100 bg-slate-50/50">
         <div className="flex flex-col">
           <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
@@ -84,7 +87,7 @@ export const Calendar: React.FC<CalendarProps> = ({ instances, tasks, users, onA
         </div>
       </div>
 
-      {/* Days Header */}
+      {/* --- Weekday Labels --- */}
       <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50/30">
         {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
           <div key={day} className="py-3 text-center text-xs font-bold text-slate-400 uppercase tracking-widest">
@@ -93,7 +96,7 @@ export const Calendar: React.FC<CalendarProps> = ({ instances, tasks, users, onA
         ))}
       </div>
 
-      {/* Grid */}
+      {/* --- Monthly Day Grid --- */}
       <div 
         className="grid grid-cols-7 flex-1 min-h-0"
         style={{ gridTemplateRows: `repeat(${Math.ceil(calendarDays.length / 7)}, 1fr)` }}
@@ -113,6 +116,7 @@ export const Calendar: React.FC<CalendarProps> = ({ instances, tasks, users, onA
                 isCurrentMonth && "hover:bg-indigo-50/30"
               )}
             >
+              {/* --- Day Number & Add Action --- */}
               <div className="flex justify-between items-start mb-2">
                 <span className={cn(
                   "flex items-center justify-center h-7 w-7 text-sm font-semibold rounded-full transition-all",
@@ -135,6 +139,7 @@ export const Calendar: React.FC<CalendarProps> = ({ instances, tasks, users, onA
                 )}
               </div>
 
+              {/* --- Task Instances for the Day --- */}
               <div className="space-y-1.5 overflow-y-auto flex-1 min-h-0 scrollbar-hide">
                 <AnimatePresence mode="popLayout">
                   {dayInstances.map((instance) => {
