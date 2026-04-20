@@ -5,22 +5,40 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
 
+/**
+ * Root component for a dialog. 
+ * Manages the open/close state and provides context for children.
+ */
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />
 }
 
+/**
+ * Component that triggers the dialog to open when interacted with.
+ */
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
 }
 
+/**
+ * Handles the rendering context for the dialog, allowing it to be 
+ * teleported to the body level to avoid stacking context issues.
+ */
 function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
   return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
 }
 
+/**
+ * A built-in close action for the dialog.
+ */
 function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
   return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
 }
 
+/**
+ * The backdrop overlay that dims the background when a dialog is active.
+ * Uses Framer Motion-like animations via Tailwind 'data-open/closed' attributes.
+ */
 function DialogOverlay({
   className,
   ...props
@@ -37,6 +55,11 @@ function DialogOverlay({
   )
 }
 
+/**
+ * The main container for the dialog contents.
+ * Automatically includes the overlay and optional close button.
+ * Uses a centered positioning logic with responsive sizing.
+ */
 function DialogContent({
   className,
   children,
@@ -56,10 +79,8 @@ function DialogContent({
         )}
         {...props}
       >
-        {children}
         {showCloseButton && (
-          <DialogPrimitive.Close
-            data-slot="dialog-close"
+          <DialogClose
             render={
               <Button
                 variant="ghost"
@@ -68,16 +89,20 @@ function DialogContent({
               />
             }
           >
-            <XIcon
-            />
+            <XIcon />
             <span className="sr-only">Close</span>
-          </DialogPrimitive.Close>
+          </DialogClose>
         )}
+        {children}
       </DialogPrimitive.Popup>
     </DialogPortal>
   )
 }
 
+/**
+ * Structural element for the dialog header.
+ * Primarily used to stack the title and description with consistent spacing.
+ */
 function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -88,6 +113,11 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+/**
+ * Structural element for the dialog footer.
+ * Positions action buttons (like Save/Cancel) at the bottom.
+ * Note: Uses -mx-4 to bleed the background color to the edges of the p-4 parent content.
+ */
 function DialogFooter({
   className,
   showCloseButton = false,
@@ -115,6 +145,10 @@ function DialogFooter({
   )
 }
 
+/**
+ * The semantic title of the dialog.
+ * Crucial for screen reader accessibility.
+ */
 function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
@@ -128,6 +162,9 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   )
 }
 
+/**
+ * A sub-caption providing additional context about the dialog's purpose.
+ */
 function DialogDescription({
   className,
   ...props

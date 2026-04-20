@@ -43,6 +43,7 @@ service cloud.firestore {
     //   - taskId: string (required)
     //   - householdId: string (required)
     //   - dueDate: string (required, ISO 8601)
+    //   - status: string (required, enum: to do, done)
     //   - assignedTo: string (optional, UID)
     //   - completedAt: string (optional, ISO 8601)
     //   - completedBy: string (optional, UID)
@@ -170,12 +171,13 @@ service cloud.firestore {
     }
 
     function isValidTaskInstance(data) {
-      return hasRequiredFields(['id', 'taskId', 'householdId', 'dueDate']) &&
-             hasOnlyAllowedFields(['id', 'taskId', 'householdId', 'dueDate', 'assignedTo', 'completedAt', 'completedBy']) &&
+      return hasRequiredFields(['id', 'taskId', 'householdId', 'dueDate', 'status']) &&
+             hasOnlyAllowedFields(['id', 'taskId', 'householdId', 'dueDate', 'status', 'assignedTo', 'completedAt', 'completedBy']) &&
              data.id is string &&
              data.taskId is string &&
              data.householdId is string &&
              isValidDateString(data.dueDate) &&
+             data.status in ['to do', 'done'] &&
              (!('assignedTo' in data) || data.assignedTo == null || data.assignedTo is string) &&
              (!('completedAt' in data) || data.completedAt == null || isValidDateString(data.completedAt)) &&
              (!('completedBy' in data) || data.completedBy == null || data.completedBy is string);
