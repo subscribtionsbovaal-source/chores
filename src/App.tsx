@@ -27,17 +27,35 @@ import {
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { addDays, addWeeks, addMonths, isBefore, parseISO, format, startOfWeek, differenceInWeeks } from 'date-fns';
 
+/**
+ * The root Application component.
+ * It manages the primary application lifecycle, including:
+ * 1. Firebase Authentication & User Profile synchronization.
+ * 2. Household selection and real-time data subscription.
+ * 3. Dynamic generation of task instances based on recurrence templates.
+ * 4. Modal state management for task creation and household settings.
+ */
 export default function App() {
-  // --- State Management ---
+  // --- State Management: Domain Data ---
+  /** All available task blueprints (templates) for the selected household. */
   const [tasks, setTasks] = useState<Task[]>([]);
+  /** All specific calendar occurrences (instances) for the household. */
   const [instances, setInstances] = useState<TaskInstance[]>([]);
+  /** List of all users (family members) belonging to the current household. */
   const [users, setUsers] = useState<User[]>([]);
-  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
-  const [userProfile, setUserProfile] = useState<User | null>(null);
-  const [currentHousehold, setCurrentHousehold] = useState<Household | null>(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
-  const [newHouseholdName, setNewHouseholdName] = useState('');
   
+  // --- State Management: Auth & Context ---
+  /** The core Firebase Auth user credentials. */
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  /** The detailed Firestore user profile data. See {@link User}. */
+  const [userProfile, setUserProfile] = useState<User | null>(null);
+  /** The household currently in focus for the user. */
+  const [currentHousehold, setCurrentHousehold] = useState<Household | null>(null);
+  /** Tracks if initial authentication state has been resolved. */
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  
+  // --- State Management: UI/Navigation ---
+  const [newHouseholdName, setNewHouseholdName] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [userToEdit, setUserToEdit] = useState<User | null>(null);
@@ -197,12 +215,21 @@ export default function App() {
   };
 
   // --- Task Interaction Handlers ---
+  /**
+   * Prepares the state for adding a new task.
+   * Resets the selected instance and sets a target date for the modal.
+   */
   const handleAddTask = (date: Date) => {
     setSelectedInstance(null);
     setInitialDate(date);
     setIsDialogOpen(true);
   };
 
+  /**
+   * Prepares the state for editing an existing task occurrence.
+   * We use a small timeout to ensure the modal's internal state resets correctly
+   * if switching between tasks quickly.
+   */
   const handleEditTask = (instance: TaskInstance) => {
     setSelectedInstance(instance);
     setIsDialogOpen(false);
@@ -251,6 +278,7 @@ export default function App() {
           householdId,
           dueDate: date.toISOString(),
           assignedTo: assignedTo === 'unassigned' || !assignedTo ? null : assignedTo,
+          status: 'to do' as const,
         });
 
         if (taskData.recurrence === 'none') {
@@ -307,6 +335,7 @@ export default function App() {
             ...selectedInstance,
             dueDate: parseISO(taskData.dueDate).toISOString(),
             assignedTo: taskData.assignedTo === 'unassigned' || !taskData.assignedTo ? null : taskData.assignedTo,
+            status: taskData.status || selectedInstance.status,
           };
           await choreService.saveInstance(updatedInstance);
         }
@@ -542,6 +571,7 @@ export default function App() {
             instances={instances} 
             tasks={tasks}
             users={users} 
+            currentUserId={userProfile.id}
             onAddTask={handleAddTask} 
             onEditTask={handleEditTask} 
           />
@@ -558,6 +588,7 @@ export default function App() {
         tasks={tasks}
         users={users}
         initialDate={initialDate}
+        currentUserId={userProfile.id}
       />
 
       {isSettingsOpen && userProfile && (

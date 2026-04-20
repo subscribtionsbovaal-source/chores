@@ -12,30 +12,56 @@ import {
   addDays, 
   eachDayOfInterval 
 } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Check, Circle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { TaskInstance, Task, User } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { choreService } from '../lib/choreService';
 
 interface CalendarProps {
+  /** Array of all task occurrences within the current household context. */
   instances: TaskInstance[];
+  /** Array of all task templates (blueprints) available in the household. */
   tasks: Task[];
+  /** List of all household members for color coding and assignment display. */
   users: User[];
+  /** The unique ID of the currently authenticated user. */
+  currentUserId: string;
+  /** Triggered when the user clicks 'plus' or a day to create a new task. */
   onAddTask: (date: Date) => void;
+  /** Triggered when a task card is clicked for editing. */
   onEditTask: (instance: TaskInstance) => void;
 }
 
-export const Calendar: React.FC<CalendarProps> = ({ instances, tasks, users, onAddTask, onEditTask }) => {
+/**
+ * The primary Calendar component for the application.
+ * It renders a monthly grid view and handles task navigation, 
+ * organization (Rhythm Algorithm), and status toggling.
+ */
+export const Calendar: React.FC<CalendarProps> = ({ 
+  instances, 
+  tasks, 
+  users, 
+  currentUserId, 
+  onAddTask, 
+  onEditTask 
+}) => {
   // --- Date State & Navigation ---
+  // Tracks the month currently being viewed in the grid.
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
+  /** Moves the view to the next numerical month. */
   const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
+  /** Moves the view to the previous numerical month. */
   const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
 
   // --- Calendar Grid Calculation ---
+  // We use date-fns to calculate the start and end of the visible grid.
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(monthStart);
+  
+  // ensure we start on Monday to match the 'Mon-Sun' labeling
   const startDate = startOfWeek(monthStart, { weekStartsOn: 1 });
   const endDate = endOfWeek(monthEnd, { weekStartsOn: 1 });
 
@@ -45,8 +71,24 @@ export const Calendar: React.FC<CalendarProps> = ({ instances, tasks, users, onA
   });
 
   // --- Helper Functions for Data Mapping ---
+
+  /**
+   * Orchestrates the "Rhythm Algorithm":
+   * 1. Filters instances to find those occurring on the target date.
+   * 2. Sorts them so that active ('to do') tasks are pinned to the top.
+   * 3. Pushes completed ('done') tasks to the bottom.
+   * Why: This ensures that users always see their immediate responsibilities 
+   * first, creating a more actionable and focused daily view.
+   */
   const getInstancesForDay = (day: Date) => {
-    return instances.filter(instance => isSameDay(new Date(instance.dueDate), day));
+    return instances
+      .filter(instance => isSameDay(new Date(instance.dueDate), day))
+      .sort((a, b) => {
+        // --- Rhythm Algorithm: Move completed tasks to the bottom ---
+        if (a.status === 'done' && b.status !== 'done') return 1;
+        if (a.status !== 'done' && b.status === 'done') return -1;
+        return 0;
+      });
   };
 
   const getTaskForInstance = (taskId: string) => {
@@ -144,6 +186,8 @@ export const Calendar: React.FC<CalendarProps> = ({ instances, tasks, users, onA
                 <AnimatePresence mode="popLayout">
                   {dayInstances.map((instance) => {
                     const task = getTaskForInstance(instance.taskId);
+                    const isDone = instance.status === 'done';
+                    
                     return (
                       <motion.div
                         layout
@@ -156,18 +200,53 @@ export const Calendar: React.FC<CalendarProps> = ({ instances, tasks, users, onA
                           onEditTask(instance);
                         }}
                         className={cn(
-                          "px-2 py-1.5 rounded-md text-[11px] font-medium border cursor-pointer shadow-sm transition-colors hover:bg-indigo-200",
-                          "bg-indigo-100 text-indigo-700 border-indigo-200"
+                          "group/task px-2 py-1.5 rounded-md text-[11px] font-medium border cursor-pointer shadow-sm transition-all relative overflow-hidden",
+                          isDone 
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100/80" 
+                            : "bg-indigo-50/80 text-indigo-700 border-indigo-100 hover:bg-indigo-100"
                         )}
                       >
-                        <div className="flex items-center gap-1.5 truncate">
+                        <div className="flex items-center gap-1.5 truncate pr-5">
                           {instance.assignedTo && instance.assignedTo !== 'unassigned' && (
                             <div 
-                              className="w-1.5 h-1.5 rounded-full shrink-0" 
+                              className={cn(
+                                "w-1.5 h-1.5 rounded-full shrink-0",
+                                isDone && "opacity-50"
+                              )} 
                               style={{ backgroundColor: getUserColor(instance.assignedTo) }}
                             />
                           )}
-                          <span className="truncate">{task?.title || 'Task'}</span>
+                          <span className={cn(
+                            "truncate transition-all duration-300",
+                            isDone && "line-through text-emerald-600/60"
+                          )}>
+                            {task?.title || 'Task'}
+                          </span>
+                        </div>
+
+                        {/* --- Sliding Done Action --- */}
+                        <div 
+                          className={cn(
+                            "absolute top-0 bottom-0 flex items-center justify-center transition-all duration-300 ease-out",
+                            isDone 
+                              ? "right-1 opacity-100 scale-100" 
+                              : "right-[-30px] group-hover/task:right-1 group-hover/task:opacity-100 opacity-0 scale-90"
+                          )}
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            await choreService.toggleInstanceStatus(instance.id, instance.status, currentUserId);
+                          }}
+                        >
+                          <div className={cn(
+                            "w-5 h-5 rounded-full flex items-center justify-center transition-colors shadow-sm",
+                            isDone 
+                              ? "bg-emerald-500 text-white" 
+                              : "bg-white border border-indigo-200 text-indigo-400 hover:text-emerald-500 hover:border-emerald-500"
+                          )}>
+                            {isDone ? (
+                              <Check className="h-3 w-3" strokeWidth={3} />
+                            ) : null}
+                          </div>
                         </div>
                       </motion.div>
                     );

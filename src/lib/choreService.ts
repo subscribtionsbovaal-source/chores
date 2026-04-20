@@ -11,7 +11,8 @@ import {
   updateDoc,
   getDoc,
   arrayUnion,
-  limit
+  limit,
+  deleteField
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { Task, User, Household, TaskInstance, Invitation } from '../types';
@@ -116,9 +117,11 @@ export const choreService = {
 
   /**
    * Listens to all task definitions within a specific household.
+   * Tasks are the "blueprints" for chores, containing recurrence rules.
+   * We order by 'createdAt' to ensure the most recently created tasks appear first in UI lists.
    * @param householdId - The ID of the household whose tasks to fetch.
    * @param callback - Function called with the updated list of tasks.
-   * @returns An unsubscribe function.
+   * @returns An unsubscribe function to stop the real-time listener.
    */
   subscribeToTasks: (householdId: string, callback: (tasks: Task[]) => void) => {
     const q = query(
@@ -135,19 +138,20 @@ export const choreService = {
   },
 
   /**
-   * Saves or updates a task definition.
-   * @param task - Partial task data. If it has an ID, it updates; otherwise, it creates.
+   * Saves or updates a task template (blueprint).
+   * This function uses { merge: true } to allow partial updates (e.g., updating just the title).
+   * It also sanitizes the data by removing undefined fields, as Firestore will throw an error
+   * if it encounters an 'undefined' property in a document write.
+   * @param task - The task blueprint data. If 'id' is missing, a new one is generated.
    */
   saveTask: async (task: Partial<Task>) => {
     const id = task.id || doc(collection(db, TASKS_COLLECTION)).id;
     const taskRef = doc(db, TASKS_COLLECTION, id);
     try {
-      // Clean undefined values to prevent Firestore errors
       const data = { ...task, id };
       Object.keys(data).forEach(key => {
         if ((data as any)[key] === undefined) delete (data as any)[key];
       });
-      // Use merge: true to allow partial updates without overwriting the whole document
       await setDoc(taskRef, data, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `${TASKS_COLLECTION}/${id}`);
@@ -159,6 +163,7 @@ export const choreService = {
 
   /**
    * Listens to all task instances (calendar entries) for a household.
+   * These records drive the visual rendering of the calendar.
    * @param householdId - The ID of the household.
    * @param callback - Function called with the updated list of instances.
    * @returns An unsubscribe function.
@@ -177,15 +182,19 @@ export const choreService = {
   },
 
   /**
-   * Saves or updates a specific task instance (e.g., marking it complete or assigning it).
-   * @param instance - Partial instance data.
+   * Saves or updates a specific task instance (calendar occurrence).
+   * Used for things like assigning a user to a specific date of a chore.
+   * @param instance - The occurrence data.
    */
   saveInstance: async (instance: Partial<TaskInstance>) => {
     const id = instance.id || doc(collection(db, INSTANCES_COLLECTION)).id;
     const instanceRef = doc(db, INSTANCES_COLLECTION, id);
     try {
-      // Clean undefined values
-      const data = { ...instance, id };
+      const data = { 
+        status: 'to do' as const,
+        ...instance, 
+        id 
+      };
       Object.keys(data).forEach(key => {
         if ((data as any)[key] === undefined) delete (data as any)[key];
       });
@@ -193,6 +202,29 @@ export const choreService = {
       await setDoc(instanceRef, data, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `${INSTANCES_COLLECTION}/${id}`);
+    }
+  },
+
+  /**
+   * Toggles completion status for a specific occurrence of a chore.
+   * This is a fundamental "instant" action. When marking as 'done', we record
+   * exactly who did it and when for accountability and future reporting.
+   * @param instanceId - The unique calendar instance ID.
+   * @param currentStatus - Current state to toggle away from.
+   * @param userId - The performing user's ID.
+   */
+  toggleInstanceStatus: async (instanceId: string, currentStatus: 'to do' | 'done', userId: string) => {
+    const instanceRef = doc(db, INSTANCES_COLLECTION, instanceId);
+    const newStatus = currentStatus === 'to do' ? 'done' : 'to do';
+    try {
+      // updateDoc is used here as a targeted write to these specific fields.
+      await updateDoc(instanceRef, {
+        status: newStatus,
+        completedAt: newStatus === 'done' ? new Date().toISOString() : deleteField(),
+        completedBy: newStatus === 'done' ? userId : deleteField()
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `${INSTANCES_COLLECTION}/${instanceId}`);
     }
   },
 
@@ -512,9 +544,16 @@ export const choreService = {
 
   /**
    * Synchronizes the local Firestore user profile with the Firebase Auth user.
-   * Creates a new profile if one doesn't exist, and enforces System Admin roles.
-   * @param firebaseUser - The user object from Firebase Authentication.
-   * @returns The synchronized User profile object.
+   * This is a critical function for security and data integrity.
+   * Logic:
+   * 1. Check if a profile exists for the UID.
+   * 2. If new: Create a profile with default values (random color, 'user' role).
+   * 3. If existing: 
+   *    - Enforce 'system_admin' role if the email matches the hardcoded admin email.
+   *    - Backfill any missing fields that might have been omitted in older versions (schema migration).
+   *    - Sync only if changes are detected to preserve write quotas.
+   * @param firebaseUser - The credentials object from onAuthStateChanged.
+   * @returns The fully populated {@link User} profile.
    */
   syncUserProfile: async (firebaseUser: any) => {
     const userRef = doc(db, USERS_COLLECTION, firebaseUser.uid);
@@ -565,4 +604,3 @@ export const choreService = {
     }
   }
 };
-
