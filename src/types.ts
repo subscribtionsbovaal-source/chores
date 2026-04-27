@@ -136,4 +136,6 @@ export interface TaskInstance {
   completedBy?: string;
   /** The current state: 'to do' (active) or 'done' (completed). */
   status: 'to do' | 'done';
+  /** Priority level for the task. 'high' adds a burning/fire indicator. */
+  priority?: 'high' | null;
 }
