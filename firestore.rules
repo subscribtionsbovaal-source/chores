@@ -172,7 +172,7 @@ service cloud.firestore {
 
     function isValidTaskInstance(data) {
       return hasRequiredFields(['id', 'taskId', 'householdId', 'dueDate', 'status']) &&
-             hasOnlyAllowedFields(['id', 'taskId', 'householdId', 'dueDate', 'status', 'assignedTo', 'completedAt', 'completedBy']) &&
+             hasOnlyAllowedFields(['id', 'taskId', 'householdId', 'dueDate', 'status', 'assignedTo', 'completedAt', 'completedBy', 'priority']) &&
              data.id is string &&
              data.taskId is string &&
              data.householdId is string &&
@@ -180,7 +180,8 @@ service cloud.firestore {
              data.status in ['to do', 'done'] &&
              (!('assignedTo' in data) || data.assignedTo == null || data.assignedTo is string) &&
              (!('completedAt' in data) || data.completedAt == null || isValidDateString(data.completedAt)) &&
-             (!('completedBy' in data) || data.completedBy == null || data.completedBy is string);
+             (!('completedBy' in data) || data.completedBy == null || data.completedBy is string) &&
+             (!('priority' in data) || data.priority == null || data.priority == 'high');
     }
 
     function isValidInvitation(data) {

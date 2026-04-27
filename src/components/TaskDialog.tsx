@@ -32,7 +32,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Task, User, TaskInstance, TaskRecurrence } from '../types';
 import { format, addDays, addWeeks, addMonths as addMonthsDate } from 'date-fns';
-import { Check, Circle } from 'lucide-react';
+import { Check, Circle, Flame } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { choreService } from '../lib/choreService';
 
@@ -47,6 +47,7 @@ const taskSchema = z.object({
   weekDays: z.array(z.number()).optional(),
   recurrenceEndDate: z.string().optional(),
   status: z.enum(['to do', 'done']).optional(),
+  priority: z.enum(['high', 'none']).optional(),
 });
 
 type TaskFormValues = z.infer<typeof taskSchema>;
@@ -109,6 +110,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
       weekDays: [],
       recurrenceEndDate: '',
       status: 'to do',
+      priority: 'none',
     }
   });
 
@@ -129,6 +131,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
         weekDays: taskDef?.weekDays || [],
         recurrenceEndDate: taskDef?.recurrenceEndDate ? format(new Date(taskDef.recurrenceEndDate), 'yyyy-MM-dd') : '',
         status: task.status || 'to do',
+        priority: task.priority || 'none',
       });
     } else if (initialDate) {
       reset({
@@ -141,6 +144,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
         weekDays: [],
         recurrenceEndDate: '',
         status: 'to do',
+        priority: 'none',
       });
     } else {
       reset();
@@ -150,6 +154,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
   const recurrence = watch('recurrence');
   const selectedWeekDays = watch('weekDays') || [];
   const status = watch('status');
+  const priority = watch('priority');
 
   /**
    * --- Variant B: Mark as Done Handler (Instant Update) ---
@@ -174,6 +179,14 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
         setValue('status', status as 'to do' | 'done');
       }
     }
+  };
+
+  /**
+   * --- Priority Toggle ---
+   * Toggles the burning 'high' priority status.
+   */
+  const togglePriority = () => {
+    setValue('priority', priority === 'high' ? 'none' : 'high');
   };
 
   // --- Handler: Custom Recurrence Weekday Toggle ---
@@ -223,6 +236,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
                 />
                 {errors.title && <p className="text-[10px] text-red-500 font-medium mt-0.5">{errors.title.message}</p>}
               </div>
+
               {task && (
                 <button
                   type="button"
@@ -276,6 +290,23 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
                 {saveError}
               </div>
             )}
+            {/* --- Priority Toggle (Burning) --- */}
+            <div className="flex items-center pb-1">
+              <button
+                type="button"
+                onClick={togglePriority}
+                className={cn(
+                  "h-[24px] w-[128px] rounded-[16px] flex items-center justify-center gap-2 transition-all duration-300",
+                  priority === 'high' 
+                    ? "bg-orange-500 text-white shadow-md shadow-orange-100 ring-2 ring-orange-200 ring-offset-1" 
+                    : "bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-500 border border-slate-100"
+                )}
+              >
+                <Flame className={cn("h-3.5 w-3.5", priority === 'high' ? "" : "opacity-40")} fill={priority === 'high' ? "currentColor" : "none"} />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-center">Burning Task</span>
+              </button>
+            </div>
+
             {/* --- Description --- */}
             <div className="space-y-1">
               <Label htmlFor="description" className="text-xs font-semibold text-slate-700">Description (Optional)</Label>

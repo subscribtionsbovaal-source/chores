@@ -272,14 +272,15 @@ export default function App() {
         const defaultEndDate = addDays(currentDate, 730);
         const endDate = taskData.recurrenceEndDate ? parseISO(taskData.recurrenceEndDate) : defaultEndDate;
 
-        const createInstance = (date: Date) => ({
-          id: doc(collection(db, 'task_instances')).id,
-          taskId,
-          householdId,
-          dueDate: date.toISOString(),
-          assignedTo: assignedTo === 'unassigned' || !assignedTo ? null : assignedTo,
-          status: 'to do' as const,
-        });
+          const createInstance = (date: Date) => ({
+            id: doc(collection(db, 'task_instances')).id,
+            taskId,
+            householdId,
+            dueDate: date.toISOString(),
+            assignedTo: assignedTo === 'unassigned' || !assignedTo ? null : assignedTo,
+            status: 'to do' as const,
+            priority: (taskData.priority === 'high' ? 'high' : null) as 'high' | null,
+          });
 
         if (taskData.recurrence === 'none') {
           instancesToCreate.push(createInstance(currentDate));
@@ -336,6 +337,7 @@ export default function App() {
             dueDate: parseISO(taskData.dueDate).toISOString(),
             assignedTo: taskData.assignedTo === 'unassigned' || !taskData.assignedTo ? null : taskData.assignedTo,
             status: taskData.status || selectedInstance.status,
+            priority: (taskData.priority === 'high' ? 'high' : null) as 'high' | null,
           };
           await choreService.saveInstance(updatedInstance);
         }

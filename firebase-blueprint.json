@@ -59,10 +59,11 @@
         "dueDate": { "type": "string", "format": "date-time" },
         "assignedTo": { "type": "string" },
         "completedAt": { "type": "string", "format": "date-time" },
-        "completedBy": { "type": "string" }
+        "completedBy": { "type": "string" },
+        "priority": { "type": "string", "enum": ["high", null] }
       },
       "required": ["id", "taskId", "householdId", "dueDate"]
-      },
+    },
     "Invitation": {
       "title": "Invitation",
       "description": "A specific email invitation to join a household",
@@ -99,7 +100,7 @@
     "/task_instances/{instanceId}": {
       "schema": "TaskInstance",
       "description": "Specific task occurrences"
-      },
+    },
     "/invitations/{invitationId}": {
       "schema": "Invitation",
       "description": "Household email invitations"
