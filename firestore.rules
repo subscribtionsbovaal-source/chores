@@ -132,7 +132,7 @@ service cloud.firestore {
 
     function isValidUser(data) {
       return hasRequiredFields(['id', 'name', 'email', 'color', 'role', 'householdIds']) &&
-             hasOnlyAllowedFields(['id', 'name', 'email', 'avatar', 'color', 'role', 'householdIds', 'currentHouseholdId']) &&
+             hasOnlyAllowedFields(['id', 'name', 'email', 'avatar', 'color', 'role', 'householdIds', 'currentHouseholdId', 'householdSettings']) &&
              data.id is string &&
              data.name is string && data.name.size() >= 1 && data.name.size() <= 50 &&
              data.email is string &&
@@ -140,7 +140,8 @@ service cloud.firestore {
              data.role in ['system_admin', 'user'] &&
              data.householdIds is list &&
              (!('currentHouseholdId' in data) || data.currentHouseholdId == null || data.currentHouseholdId is string) &&
-             (!('avatar' in data) || data.avatar == null || data.avatar is string);
+             (!('avatar' in data) || data.avatar == null || data.avatar is string) &&
+             (!('householdSettings' in data) || data.householdSettings is map);
     }
 
     function isValidHousehold(data) {

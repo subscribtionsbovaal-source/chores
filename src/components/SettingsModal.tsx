@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { User, Household, GlobalRole } from '../types';
+import { User, Household, GlobalRole, UserHouseholdSettings } from '../types';
 import { choreService } from '../lib/choreService';
+import { getUserDisplayInfo } from '../lib/userUtils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -66,6 +67,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
   // --- Role Helpers ---
   const isSystemAdmin = currentUser.role === 'system_admin';
   const isHouseholdAdmin = currentHousehold?.admins.includes(currentUser.id) || isSystemAdmin;
+
+  const updateEditingUserDisplayField = (field: 'name' | 'color', value: string) => {
+    if (!editingUser || !currentHousehold) return;
+    
+    // In household menu view, we specifically target the household override
+    const householdId = currentHousehold.id;
+    const currentSettings = editingUser.householdSettings || {};
+    const householdSpecific = currentSettings[householdId] || {};
+    
+    const newHouseholdSettings: Record<string, UserHouseholdSettings> = {
+      ...currentSettings,
+      [householdId]: {
+        ...householdSpecific,
+        [field]: value
+      }
+    };
+    
+    setEditingUser({
+      ...editingUser,
+      householdSettings: newHouseholdSettings
+    });
+  };
 
   // --- Effect: Sync Household Data ---
   useEffect(() => {
@@ -357,6 +380,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                     <div className="space-y-3">
                       {/* Map through each user in the household to create a list item */}
                       {householdUsers.map(user => {
+                        const displayInfo = getUserDisplayInfo(user, currentHousehold?.id);
+                        
                         // Check if this specific user is currently being edited in the UI
                         const isEditing = editingUser?.id === user.id;
                         
@@ -365,11 +390,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                         // matches the one they manage, and regular users can only edit their own profile.
                         const canEdit = isSystemAdmin || (isHouseholdAdmin && user.currentHouseholdId === currentHousehold?.id) || user.id === currentUser.id;
                         
+                        const editingDisplayInfo = editingUser ? getUserDisplayInfo(editingUser, currentHousehold?.id) : displayInfo;
+
                         // Check if any changes have been made to the user's data during editing
                         // to enable/disable the 'Save' button later.
                         const hasChanges = isEditing && (
-                          editingUser.name !== user.name || 
-                          editingUser.color !== user.color || 
+                          editingDisplayInfo.name !== displayInfo.name || 
+                          editingDisplayInfo.color !== displayInfo.color || 
                           (householdAdmins.includes(user.id) !== (currentHousehold?.admins.includes(user.id) ?? false))
                         );
                         
@@ -402,13 +429,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                 {/* User Avatar with their assigned color */}
                                 <div 
                                   className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm group-hover/header:scale-105 transition-transform" 
-                                  style={{ backgroundColor: user.color }}
+                                  style={{ backgroundColor: displayInfo.color }}
                                 >
-                                  {user.name[0]}
+                                  {displayInfo.name[0]}
                                 </div>
                                 <div>
                                   <div className="flex items-center gap-2">
-                                    <p className="text-sm font-bold text-slate-900 group-hover/header:text-indigo-600 transition-colors">{user.name}</p>
+                                    <p className="text-sm font-bold text-slate-900 group-hover/header:text-indigo-600 transition-colors">{displayInfo.name}</p>
                                     {/* 'You' badge for the currently logged-in user */}
                                     {user.id === currentUser.id && (
                                       <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-600 text-[8px] font-bold uppercase tracking-wider">You</span>
@@ -458,8 +485,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                       <div className="space-y-1.5">
                                         <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Full Name</Label>
                                         <Input 
-                                          value={editingUser.name}
-                                          onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
+                                          value={editingDisplayInfo.name}
+                                          onChange={(e) => updateEditingUserDisplayField('name', e.target.value)}
                                           className="h-10 rounded-xl border-slate-200 focus:ring-indigo-500 bg-white"
                                         />
                                       </div>
@@ -569,9 +596,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                             {/* Preview of the currently selected color */}
                                             <div 
                                               className="w-5 h-5 rounded-full shadow-sm" 
-                                              style={{ backgroundColor: editingUser.color }}
+                                              style={{ backgroundColor: editingDisplayInfo.color }}
                                             />
-                                            <span className="text-sm font-medium text-slate-700">{getColorName(editingUser.color)}</span>
+                                            <span className="text-sm font-medium text-slate-700">{getColorName(editingDisplayInfo.color)}</span>
                                             <ChevronRight className={cn("h-5 w-5 ml-auto text-slate-400 transition-transform", isColorPickerOpen && "rotate-90")} />
                                           </button>
 
@@ -591,18 +618,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                                     type="button"
                                                     onClick={() => {
                                                       // Update the local editing state with the new color
-                                                      setEditingUser({ ...editingUser, color: color.value });
+                                                      updateEditingUserDisplayField('color', color.value);
                                                       setIsColorPickerOpen(false);
                                                     }}
                                                     className={cn(
                                                       "w-full aspect-square rounded-full transition-all flex items-center justify-center relative group",
-                                                      editingUser.color === color.value ? "ring-2 ring-offset-2 ring-indigo-500 scale-110" : "hover:scale-110"
+                                                      editingDisplayInfo.color === color.value ? "ring-2 ring-offset-2 ring-indigo-500 scale-110" : "hover:scale-110"
                                                     )}
                                                     style={{ backgroundColor: color.value }}
                                                     title={color.name}
                                                   >
                                                     {/* Checkmark overlay for the active selection */}
-                                                    {editingUser.color === color.value && <Check className="h-5 w-5 text-white" />}
+                                                    {editingDisplayInfo.color === color.value && <Check className="h-5 w-5 text-white" />}
                                                   </button>
                                                 ))}
                                               </motion.div>

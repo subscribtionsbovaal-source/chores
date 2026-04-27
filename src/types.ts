@@ -6,19 +6,29 @@
 export type GlobalRole = 'system_admin' | 'user';
 
 /**
+ * Represents household-specific profile overrides.
+ */
+export interface UserHouseholdSettings {
+  /** The display name used within this specific household. */
+  name?: string;
+  /** The color used for this user within this specific household. */
+  color?: string;
+}
+
+/**
  * Represents a user profile in the system.
  * This is the primary identity object linked to Firebase Authentication.
  */
 export interface User {
   /** The unique Firebase Auth UID. */
   id: string;
-  /** The display name chosen by the user or synced from Google. */
+  /** The global display name chosen by the user or synced from Google. */
   name: string;
   /** The user's verified email address. */
   email: string;
   /** Optional URL to a hosted avatar image. */
   avatar?: string;
-  /** A hexadecimal color code used for UI personalization (e.g., calendar tags). */
+  /** The global hexadecimal color code used for UI personalization. */
   color: string;
   /** See {@link GlobalRole} for permission levels. */
   role: GlobalRole;
@@ -26,6 +36,8 @@ export interface User {
   householdIds: string[];
   /** The ID of the household currently being viewed by the user. */
   currentHouseholdId?: string;
+  /** Household-specific profile overrides. Keyed by householdId. */
+  householdSettings?: Record<string, UserHouseholdSettings>;
 }
 
 /**

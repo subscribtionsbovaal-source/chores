@@ -12,9 +12,10 @@ import { db, auth, signIn, signOut } from './lib/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { Task, User, TaskInstance, Household } from './types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, Users, Settings, Bell, LogOut, LogIn, Plus, ChevronDown, Home } from 'lucide-react';
+import { Sparkles, Users, Settings, Bell, LogOut, LogIn, Plus, ChevronDown, Home, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import { 
   DropdownMenu,
   DropdownMenuContent,
@@ -26,6 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { addDays, addWeeks, addMonths, isBefore, parseISO, format, startOfWeek, differenceInWeeks } from 'date-fns';
+import { getUserDisplayInfo } from './lib/userUtils';
 
 /**
  * The root Application component.
@@ -51,6 +53,8 @@ export default function App() {
   const [userProfile, setUserProfile] = useState<User | null>(null);
   /** The household currently in focus for the user. */
   const [currentHousehold, setCurrentHousehold] = useState<Household | null>(null);
+  /** List of all households the user belongs to. */
+  const [userHouseholds, setUserHouseholds] = useState<Household[]>([]);
   /** Tracks if initial authentication state has been resolved. */
   const [isAuthReady, setIsAuthReady] = useState(false);
   
@@ -62,6 +66,7 @@ export default function App() {
   const [selectedInstance, setSelectedInstance] = useState<TaskInstance | null>(null);
   const [initialDate, setInitialDate] = useState<Date | undefined>(undefined);
   const [isJoining, setIsJoining] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [pendingInvite, setPendingInvite] = useState<string | null>(() => {
     // --- Invitation Token Initialization ---
     // Try to get from URL first
@@ -175,8 +180,25 @@ export default function App() {
   }, [currentUser, userProfile?.id, pendingInvite]);
 
   // --- Real-time Data Listeners ---
-  // Data Listeners
+  // 1. Listen to all households user belongs to (independently of selection)
   useEffect(() => {
+    if (!currentUser) {
+      setUserHouseholds([]);
+      return;
+    }
+
+    const unsub = choreService.subscribeToUserHouseholds(currentUser.uid, setUserHouseholds);
+    return () => unsub();
+  }, [currentUser]);
+
+  // 2. Listen to specific current household data
+  useEffect(() => {
+    // If we have households but none is selected, auto-select the first one
+    if (userHouseholds.length > 0 && !userProfile?.currentHouseholdId && currentUser) {
+      choreService.updateUser(currentUser.uid, { currentHouseholdId: userHouseholds[0].id });
+      return;
+    }
+
     if (!currentUser || !userProfile?.currentHouseholdId) {
       setTasks([]);
       setInstances([]);
@@ -199,6 +221,18 @@ export default function App() {
       unsubUsers();
     };
   }, [currentUser, userProfile?.currentHouseholdId]);
+
+  // --- Household Switching Handler ---
+  const handleSwitchHousehold = async (householdId: string) => {
+    if (!currentUser || !userProfile) return;
+    if (userProfile.currentHouseholdId === householdId) return;
+    
+    try {
+      await choreService.updateUser(currentUser.uid, { currentHouseholdId: householdId });
+    } catch (error) {
+      console.error("Failed to switch household:", error);
+    }
+  };
 
   // --- Household Creation Handler ---
   const handleCreateHousehold = async () => {
@@ -464,76 +498,123 @@ export default function App() {
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col py-6 shadow-sm z-10">
+      <motion.aside 
+        initial={false}
+        animate={{ width: isSidebarOpen ? 256 : 80 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        className="bg-white border-r border-slate-200 flex flex-col pt-6 pb-0 shadow-sm z-10 overflow-hidden"
+      >
         {/* Logo Section */}
-        <div className="flex items-center gap-3 mb-8 pl-[34px] pr-6">
-          <div className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center shadow-sm">
+        <div className={cn(
+          "flex items-center gap-3 mb-8 px-6",
+          !isSidebarOpen && "justify-center px-0"
+        )}>
+          <div className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center shadow-sm shrink-0">
             <Sparkles className="text-indigo-600 h-5 w-5" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight">ChoreFlow</h1>
+          <AnimatePresence mode="wait">
+            {isSidebarOpen && (
+              <motion.h1 
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                className="text-xl font-bold tracking-tight whitespace-nowrap"
+              >
+                ChoreFlow
+              </motion.h1>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Primary Actions */}
-        <div className="flex-1 space-y-2 pl-[34px] pr-6">
+        <div className={cn("flex-1 px-6", !isSidebarOpen && "px-0 flex flex-col items-center")}>
           <Button 
             onClick={() => handleAddTask(new Date())}
-            className="w-[190px] h-12 bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 rounded-xl font-semibold gap-3 transition-all active:scale-[0.98] mb-4 pl-[10px] pr-[10px] justify-start"
+            className={cn(
+              "h-12 bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 rounded-xl font-semibold gap-3 transition-all active:scale-[0.98] mb-4 overflow-hidden",
+              isSidebarOpen ? "w-full px-4 justify-start" : "w-12 px-0 justify-center"
+            )}
           >
-            <div className="w-8 h-8 flex items-center justify-center shrink-0">
-              <Plus className="h-5 w-5" />
-            </div>
-            New Task
+            <Plus className="h-5 w-5 shrink-0" />
+            {isSidebarOpen && <span className="whitespace-nowrap">New Task</span>}
           </Button>
         </div>
 
         {/* User & Household Context */}
-        <div className="mt-auto pt-5 px-6">
-          <div className="space-y-2 mb-2">
-            {userProfile && (
-              <div 
-                key={userProfile.id} 
-                className="flex items-center gap-3 pl-[10px] h-12 group cursor-pointer"
-                onClick={() => {
-                  setUserToEdit(userProfile);
-                  setIsSettingsOpen(true);
-                }}
-              >
+        <div className={cn("mt-auto pt-5 px-6", !isSidebarOpen && "px-0 flex flex-col items-center")}>
+          <div className="space-y-2 mb-2 w-full">
+            {userProfile && (() => {
+              const displayInfo = getUserDisplayInfo(userProfile, currentHousehold?.id);
+              return (
                 <div 
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm transition-transform group-hover:scale-110" 
-                  style={{ backgroundColor: userProfile.color }}
+                  key={userProfile.id} 
+                  className={cn(
+                    "flex items-center gap-3 h-12 group cursor-pointer rounded-xl transition-colors hover:bg-slate-50",
+                    isSidebarOpen ? "px-3" : "justify-center"
+                  )}
+                  onClick={() => {
+                    setUserToEdit(userProfile);
+                    setIsSettingsOpen(true);
+                  }}
                 >
-                  {userProfile.name[0]}
+                  <div 
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm transition-transform group-hover:scale-110 shrink-0" 
+                    style={{ backgroundColor: displayInfo.color }}
+                  >
+                    {displayInfo.name[0]}
+                  </div>
+                  {isSidebarOpen && (
+                    <span className="text-sm font-medium text-slate-600 group-hover:text-slate-900 truncate">{displayInfo.name}</span>
+                  )}
                 </div>
-                <span className="text-sm font-medium text-slate-600 group-hover:text-slate-900">{userProfile.name}</span>
-              </div>
-            )}
+              );
+            })()}
           </div>
           
           {/* Household Selector */}
-          <div className="mb-2">
+          <div className="mb-2 w-full flex justify-center">
             <DropdownMenu>
               <DropdownMenuTrigger render={
-                <Button variant="ghost" className="w-full h-12 pl-[10px] pr-2 rounded-xl transition-all flex items-center gap-3 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 group border border-transparent hover:border-indigo-100">
+                <Button 
+                  variant="ghost" 
+                  className={cn(
+                    "h-12 rounded-xl transition-all flex items-center text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 group border border-transparent hover:border-indigo-100",
+                    isSidebarOpen ? "w-full px-3 gap-3" : "w-12 px-0 justify-center"
+                  )}
+                >
                   <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-sm group-hover:border-indigo-200 transition-colors">
                     <Home className="h-5 w-5 text-slate-500 group-hover:text-indigo-600 transition-colors" />
                   </div>
-                  <span className="text-sm font-medium truncate">{currentHousehold?.name || 'Loading...'}</span>
-                  <ChevronDown className="h-5 w-5 ml-auto text-slate-400 group-hover:text-indigo-400 transition-colors" />
+                  {isSidebarOpen && (
+                    <>
+                      <span className="text-sm font-medium truncate">{currentHousehold?.name || 'Loading...'}</span>
+                      <ChevronDown className="h-5 w-5 ml-auto text-slate-400 group-hover:text-indigo-400 transition-colors" />
+                    </>
+                  )}
                 </Button>
               } />
-              <DropdownMenuContent className="w-56 rounded-xl shadow-xl border-slate-100 p-2" align="start">
+              <DropdownMenuContent className="w-56 rounded-xl shadow-xl border-slate-100 p-2" align={isSidebarOpen ? "start" : "center"}>
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2 py-1.5">My Households</DropdownMenuLabel>
+                  {userHouseholds.map((household) => (
+                    <DropdownMenuItem 
+                      key={household.id}
+                      onClick={() => handleSwitchHousehold(household.id)}
+                      className={cn(
+                        "rounded-lg font-medium text-sm py-2.5 px-3 cursor-pointer flex items-center justify-between",
+                        household.id === currentHousehold?.id ? "bg-indigo-50 text-indigo-600" : "focus:bg-slate-50"
+                      )}
+                    >
+                      <span className="truncate">{household.name}</span>
+                      {household.id === currentHousehold?.id && (
+                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-600" />
+                      )}
+                    </DropdownMenuItem>
+                  ))}
                 </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                {/* This would ideally list all user's households, but for now we show current */}
-                <DropdownMenuItem className="rounded-lg font-medium text-sm py-2.5 px-3 focus:bg-indigo-50 focus:text-indigo-600 cursor-pointer">
-                  {currentHousehold?.name}
-                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem 
                   onClick={() => {
-                    // Logic to trigger household creation if needed
                     setUserProfile(prev => prev ? { ...prev, currentHouseholdId: undefined } : null);
                   }}
                   className="rounded-lg font-medium text-sm py-2.5 px-3 focus:bg-indigo-50 focus:text-indigo-600 cursor-pointer text-indigo-600"
@@ -552,15 +633,36 @@ export default function App() {
               setUserToEdit(null);
               setIsSettingsOpen(true);
             }}
-            className="w-full h-12 pl-[10px] pr-2 rounded-xl transition-all flex items-center justify-start gap-3 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 group border border-transparent hover:border-indigo-100"
+            className={cn(
+              "h-12 rounded-xl transition-all flex items-center text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 group border border-transparent hover:border-indigo-100",
+              isSidebarOpen ? "w-full px-3 gap-3 justify-start" : "w-12 px-0 justify-center"
+            )}
           >
             <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-sm group-hover:border-indigo-200 transition-colors">
               <Settings className="h-5 w-5 text-slate-500 group-hover:text-indigo-600 transition-colors" />
             </div>
-            <span className="text-sm font-medium">Settings</span>
+            {isSidebarOpen && <span className="text-sm font-medium">Settings</span>}
           </Button>
+
+          {/* Collapse Toggle at Bottom */}
+          <div className="mt-0 pt-0 border-t border-slate-100">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className={cn(
+                "w-full h-10 flex items-center text-slate-400 hover:text-indigo-600 hover:bg-slate-50 rounded-xl transition-all",
+                isSidebarOpen ? "justify-start px-3 gap-3" : "justify-center px-0"
+              )}
+            >
+              <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                {isSidebarOpen ? <ChevronsLeft className="h-4 w-4" /> : <ChevronsRight className="h-4 w-4" />}
+              </div>
+              {isSidebarOpen && <span className="text-xs font-bold uppercase tracking-wider">Collapse Sidebar</span>}
+            </Button>
+          </div>
         </div>
-      </aside>
+      </motion.aside>
 
       {/* Main Content Area */}
       <main className="flex-1 p-6 overflow-hidden flex flex-col">
@@ -574,6 +676,7 @@ export default function App() {
             tasks={tasks}
             users={users} 
             currentUserId={userProfile.id}
+            householdId={currentHousehold?.id}
             onAddTask={handleAddTask} 
             onEditTask={handleEditTask} 
           />
@@ -591,6 +694,7 @@ export default function App() {
         users={users}
         initialDate={initialDate}
         currentUserId={userProfile.id}
+        householdId={currentHousehold?.id}
       />
 
       {isSettingsOpen && userProfile && (
