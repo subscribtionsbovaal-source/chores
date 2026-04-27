@@ -35,6 +35,7 @@ import { format, addDays, addWeeks, addMonths as addMonthsDate } from 'date-fns'
 import { Check, Circle, Flame } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { choreService } from '../lib/choreService';
+import { getUserDisplayInfo } from '../lib/userUtils';
 
 // --- Form Validation Schema ---
 const taskSchema = z.object({
@@ -71,6 +72,8 @@ interface TaskDialogProps {
   initialDate?: Date;
   /** The UID of the current user, used for logging 'completedBy'. */
   currentUserId: string;
+  /** The ID of the current household context. */
+  householdId?: string;
 }
 
 /**
@@ -87,7 +90,8 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
   tasks = [],
   users,
   initialDate,
-  currentUserId
+  currentUserId,
+  householdId
 }) => {
   // --- Form Initialization ---
   // Using React Hook Form with Zod for robust validation and type safety.
@@ -334,10 +338,11 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
                       if (val === 'unassigned' || !val) return "Unassigned";
                       const user = users.find(u => u.id === val);
                       if (!user) return "Unassigned";
+                      const displayInfo = getUserDisplayInfo(user, householdId);
                       return (
                         <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: user.color }} />
-                          <span>{user.name}</span>
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: displayInfo.color }} />
+                          <span>{displayInfo.name}</span>
                         </div>
                       );
                     })()}
@@ -345,14 +350,17 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unassigned">Unassigned</SelectItem>
-                  {users.map(user => (
-                    <SelectItem key={user.id} value={user.id}>
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: user.color }} />
-                        {user.name}
-                      </div>
-                    </SelectItem>
-                  ))}
+                  {users.map(user => {
+                    const displayInfo = getUserDisplayInfo(user, householdId);
+                    return (
+                      <SelectItem key={user.id} value={user.id}>
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: displayInfo.color }} />
+                          {displayInfo.name}
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>

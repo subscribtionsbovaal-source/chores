@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { TaskInstance, Task, User } from '../types';
 import { choreService } from '../lib/choreService';
+import { getUserDisplayInfo } from '../lib/userUtils';
 
 interface CalendarProps {
   /** Array of all task occurrences within the current household context. */
@@ -30,6 +31,8 @@ interface CalendarProps {
   users: User[];
   /** The unique ID of the currently authenticated user. */
   currentUserId: string;
+  /** The ID of the current household context. */
+  householdId?: string;
   /** Triggered when the user clicks 'plus' or a day to create a new task. */
   onAddTask: (date: Date) => void;
   /** Triggered when a task card is clicked for editing. */
@@ -46,6 +49,7 @@ export const Calendar: React.FC<CalendarProps> = ({
   tasks, 
   users, 
   currentUserId, 
+  householdId,
   onAddTask, 
   onEditTask 
 }) => {
@@ -126,7 +130,11 @@ export const Calendar: React.FC<CalendarProps> = ({
   };
 
   const getTaskForInstance = (taskId: string) => tasks.find(t => t.id === taskId);
-  const getUserColor = (userId?: string) => users.find(u => u.id === userId)?.color || '#cbd5e1';
+  const getUserColor = (userId?: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user) return '#cbd5e1';
+    return getUserDisplayInfo(user, householdId).color;
+  };
 
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
@@ -231,7 +239,7 @@ export const Calendar: React.FC<CalendarProps> = ({
                 className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-6 h-11 shadow-lg shadow-indigo-100 font-bold"
               >
                 <Plus className="mr-2 h-5 w-5" />
-                Add New Task
+                New Task
               </Button>
             </div>
 

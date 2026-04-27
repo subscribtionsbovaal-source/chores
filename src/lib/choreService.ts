@@ -81,6 +81,26 @@ export const choreService = {
   },
 
   /**
+   * Listens to all households that a user is a member of.
+   * @param userId - The ID of the user.
+   * @param callback - Function called with the updated list of households.
+   * @returns An unsubscribe function.
+   */
+  subscribeToUserHouseholds: (userId: string, callback: (households: Household[]) => void) => {
+    const q = query(
+      collection(db, HOUSEHOLDS_COLLECTION),
+      where('members', 'array-contains', userId),
+      orderBy('createdAt', 'desc')
+    );
+    return onSnapshot(q, (snapshot) => {
+      const households = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Household));
+      callback(households);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, HOUSEHOLDS_COLLECTION);
+    });
+  },
+
+  /**
    * Updates an existing household's metadata (e.g., name, admin list).
    * @param id - The ID of the household to update.
    * @param data - Partial household data containing the fields to change.
@@ -604,3 +624,4 @@ export const choreService = {
     }
   }
 };
+
