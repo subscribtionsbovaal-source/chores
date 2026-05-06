@@ -8,13 +8,14 @@ import { Calendar } from './components/Calendar';
 import { TaskDialog } from './components/TaskDialog';
 import { SettingsModal } from './components/SettingsModal';
 import { choreService } from './lib/choreService';
-import { db, auth, signIn, signOut } from './lib/firebase';
-import { collection, doc } from 'firebase/firestore';
-import { Task, User, TaskInstance, Household } from './types';
+import { supabase } from './lib/supabase';
+import { Task, User, TaskInstance, Group } from './types';
+import { User as SupabaseUser } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, Users, Settings, Bell, LogOut, LogIn, Plus, ChevronDown, Home, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { Sparkles, Users, Settings, Bell, LogIn, Plus, ChevronDown, Home, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { addDays, addWeeks, addMonths, isBefore, parseISO, format, startOfWeek, differenceInWeeks, getDay, differenceInCalendarWeeks, isSameDay, startOfDay } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { 
   DropdownMenu,
@@ -25,47 +26,46 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { addDays, addWeeks, addMonths, isBefore, parseISO, format, startOfWeek, differenceInWeeks } from 'date-fns';
-import { getUserDisplayInfo } from './lib/userUtils';
 
 /**
  * The root Application component.
  * It manages the primary application lifecycle, including:
  * 1. Firebase Authentication & User Profile synchronization.
- * 2. Household selection and real-time data subscription.
+ * 2. Group selection and real-time data subscription.
  * 3. Dynamic generation of task instances based on recurrence templates.
- * 4. Modal state management for task creation and household settings.
+ * 4. Modal state management for task creation and group settings.
  */
 export default function App() {
   // --- State Management: Domain Data ---
-  /** All available task blueprints (templates) for the selected household. */
+  /** All available task blueprints (templates) for the selected group. */
   const [tasks, setTasks] = useState<Task[]>([]);
-  /** All specific calendar occurrences (instances) for the household. */
+  /** All specific calendar occurrences (instances) for the group. */
   const [instances, setInstances] = useState<TaskInstance[]>([]);
-  /** List of all users (family members) belonging to the current household. */
+  /** List of all users (family members) belonging to the current group. */
   const [users, setUsers] = useState<User[]>([]);
   
   // --- State Management: Auth & Context ---
-  /** The core Firebase Auth user credentials. */
-  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
-  /** The detailed Firestore user profile data. See {@link User}. */
+  /** The core Supabase Auth user credentials. */
+  const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
+  /** The detailed Supabase user profile data. See {@link User}. */
   const [userProfile, setUserProfile] = useState<User | null>(null);
-  /** The household currently in focus for the user. */
-  const [currentHousehold, setCurrentHousehold] = useState<Household | null>(null);
-  /** List of all households the user belongs to. */
-  const [userHouseholds, setUserHouseholds] = useState<Household[]>([]);
+  /** The group currently in focus for the user. */
+  const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
+  /** List of all groups the user belongs to. */
+  const [userGroups, setUserGroups] = useState<Group[]>([]);
   /** Tracks if initial authentication state has been resolved. */
   const [isAuthReady, setIsAuthReady] = useState(false);
   
   // --- State Management: UI/Navigation ---
-  const [newHouseholdName, setNewHouseholdName] = useState('');
+  const [newGroupName, setNewGroupName] = useState('');
+  const [userDisplayName, setUserDisplayName] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [userToEdit, setUserToEdit] = useState<User | null>(null);
   const [selectedInstance, setSelectedInstance] = useState<TaskInstance | null>(null);
   const [initialDate, setInitialDate] = useState<Date | undefined>(undefined);
   const [isJoining, setIsJoining] = useState(false);
+  const [isCreatingNewGroup, setIsCreatingNewGroup] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [pendingInvite, setPendingInvite] = useState<string | null>(() => {
     // --- Invitation Token Initialization ---
@@ -104,14 +104,82 @@ export default function App() {
   }, []);
 
   // --- Authentication State Listener ---
-  // Auth Listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setCurrentUser(session?.user ?? null);
       setIsAuthReady(true);
     });
-    return () => unsubscribe();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUser(session?.user ?? null);
+      setIsAuthReady(true);
+    });
+
+    // Support for popup-based authentication success messaging
+    const handleAuthMessage = (event: MessageEvent) => {
+      // Validate origin is from this application
+      if (event.origin !== window.location.origin) return;
+      
+      if (event.data?.type === 'AUTH_COMPLETE') {
+        console.log('Authentication complete message received from popup.');
+        // The onAuthStateChange listener above will pick up the new session 
+        // because Supabase stores it in LocalStorage (shared across tabs of same origin).
+        // However, we explicitly refresh the session to be sure.
+        supabase.auth.refreshSession();
+      }
+    };
+    window.addEventListener('message', handleAuthMessage);
+
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener('message', handleAuthMessage);
+    };
   }, []);
+
+  const handleSignIn = async () => {
+    try {
+      console.log('Initiating Google Sign-In via Popup...');
+      
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          // Use our new callback route to close the popup gracefully
+          redirectTo: `${window.location.origin}/auth/callback`,
+          skipBrowserRedirect: true, // This allows us to open the URL in a separate popup
+          queryParams: {
+            prompt: 'select_account', // Better UX for multiple accounts
+          },
+        },
+      });
+
+      if (error) throw error;
+
+      if (data?.url) {
+        // Calculate centered popup position
+        const width = 500;
+        const height = 600;
+        const left = window.screenX + (window.outerWidth - width) / 2;
+        const top = window.screenY + (window.outerHeight - height) / 2;
+        
+        const popup = window.open(
+          data.url,
+          'google_auth',
+          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,status=no,location=no`
+        );
+
+        if (!popup) {
+          alert('Popup blocked! Please allow popups for this site to sign in.');
+        }
+      }
+    } catch (error) {
+      console.error('Sign-in failed:', error);
+      alert('Authentication failed. If you see a 403 error, please try opening the app in a New Tab.');
+    }
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+  };
 
   // --- Profile Synchronization & Real-time Subscription ---
   // This effect ensures that the user's profile is synced with Auth and
@@ -126,16 +194,18 @@ export default function App() {
     let unsub: (() => void) | undefined;
     
     const setup = async () => {
-      // 1. Ensure profile exists and is synced (e.g. System Admin role enforcement)
-      await choreService.syncUserProfile(currentUser);
-      
       if (!active) return;
 
-      // 2. Subscribe to real-time profile updates
-      // This allows the homescreen to instantly reflect changes made in SettingsModal
-      unsub = choreService.subscribeToUserProfile(currentUser.uid, (profile) => {
-        if (active) setUserProfile(profile);
-      });
+      // Ensure profile exists and is synced
+      const profile = await choreService.syncUserProfile(currentUser);
+      if (profile && active) {
+        setUserProfile(profile);
+        setUserDisplayName(profile.name);
+        // Subscribe to real-time profile updates
+        unsub = choreService.subscribeToUserProfile(profile.id, (p) => {
+          if (active) setUserProfile(p);
+        });
+      }
     };
     
     setup();
@@ -146,105 +216,109 @@ export default function App() {
     };
   }, [currentUser]);
 
-  // --- Household Invitation Process ---
+  // --- Group Invitation Process ---
   // Handle Invitation Link
   useEffect(() => {
     if (currentUser && userProfile && pendingInvite && !isJoining) {
-      const joinHousehold = async () => {
-        console.log("[App] Starting joinHousehold process...");
+      const joinGroup = async () => {
+        console.log("[App] Starting joinGroup process...");
         setIsJoining(true);
         try {
-          const household = await choreService.joinHouseholdByToken(pendingInvite, currentUser.uid, currentUser.email || undefined);
-          if (household) {
-            console.log("[App] Successfully joined household, refreshing profile...");
-            // Refresh profile to get updated household list and current household
-            const updatedProfile = await choreService.getUser(currentUser.uid);
+          const group = await choreService.joinGroupByToken(pendingInvite, userProfile.id);
+          if (group) {
+            console.log("[App] Successfully joined group, refreshing profile...");
+            // Refresh profile
+            const updatedProfile = await choreService.getUser(userProfile.id);
             if (updatedProfile) {
-              console.log("[App] Profile refreshed with household:", updatedProfile.currentHouseholdId);
               setUserProfile(updatedProfile);
             }
-          } else {
-            console.warn("[App] Token not found or invalid.");
           }
         } catch (error) {
-          console.error("[App] Failed to join household:", error);
+          console.error("[App] Failed to join group:", error);
         } finally {
-          console.log("[App] Finishing join process. Clearing invite.");
           sessionStorage.removeItem('pendingInvite');
           setPendingInvite(null);
           setIsJoining(false);
         }
       };
-      joinHousehold();
+      joinGroup();
     }
   }, [currentUser, userProfile?.id, pendingInvite]);
 
   // --- Real-time Data Listeners ---
-  // 1. Listen to all households user belongs to (independently of selection)
   useEffect(() => {
-    if (!currentUser) {
-      setUserHouseholds([]);
+    if (!userProfile) {
+      setUserGroups([]);
       return;
     }
 
-    const unsub = choreService.subscribeToUserHouseholds(currentUser.uid, setUserHouseholds);
+    const unsub = choreService.subscribeToUserGroups(userProfile.id, setUserGroups);
     return () => unsub();
-  }, [currentUser]);
+  }, [userProfile?.id]);
 
-  // 2. Listen to specific current household data
   useEffect(() => {
-    // If we have households but none is selected, auto-select the first one
-    if (userHouseholds.length > 0 && !userProfile?.currentHouseholdId && currentUser) {
-      choreService.updateUser(currentUser.uid, { currentHouseholdId: userHouseholds[0].id });
+    // If we have groups but none is selected, auto-select the first one
+    if (userGroups.length > 0 && !userProfile?.currentGroupId && userProfile && !isCreatingNewGroup) {
+      choreService.updateUser(userProfile.id, { currentGroupId: userGroups[0].id });
       return;
     }
 
-    if (!currentUser || !userProfile?.currentHouseholdId) {
+    if (!userProfile?.currentGroupId) {
       setTasks([]);
       setInstances([]);
       setUsers([]);
-      setCurrentHousehold(null);
+      setCurrentGroup(null);
       return;
     }
 
-    const householdId = userProfile.currentHouseholdId;
+    const groupId = userProfile.currentGroupId;
     
-    const unsubHousehold = choreService.subscribeToHousehold(householdId, setCurrentHousehold);
-    const unsubTasks = choreService.subscribeToTasks(householdId, setTasks);
-    const unsubInstances = choreService.subscribeToInstances(householdId, setInstances);
-    const unsubUsers = choreService.subscribeToHouseholdUsers(householdId, setUsers);
+    const unsubGroup = choreService.subscribeToGroup(groupId, setCurrentGroup);
+    const unsubTasks = choreService.subscribeToTasks(groupId, setTasks);
+    const unsubInstances = choreService.subscribeToInstances(groupId, setInstances);
+    const unsubUsers = choreService.subscribeToGroupUsers(groupId, setUsers);
 
     return () => {
-      unsubHousehold();
+      unsubGroup();
       unsubTasks();
       unsubInstances();
       unsubUsers();
     };
-  }, [currentUser, userProfile?.currentHouseholdId]);
+  }, [currentUser, userProfile?.currentGroupId]);
 
-  // --- Household Switching Handler ---
-  const handleSwitchHousehold = async (householdId: string) => {
-    if (!currentUser || !userProfile) return;
-    if (userProfile.currentHouseholdId === householdId) return;
+  // --- Group Switching Handler ---
+  const handleSwitchGroup = async (groupId: number) => {
+    if (!userProfile) return;
+    setIsCreatingNewGroup(false);
+    if (userProfile.currentGroupId === groupId) return;
     
     try {
-      await choreService.updateUser(currentUser.uid, { currentHouseholdId: householdId });
+      await choreService.updateUser(userProfile.id, { currentGroupId: groupId });
     } catch (error) {
-      console.error("Failed to switch household:", error);
+      console.error("Failed to switch group:", error);
     }
   };
 
-  // --- Household Creation Handler ---
-  const handleCreateHousehold = async () => {
-    if (!currentUser || !newHouseholdName.trim()) return;
+  // --- Group Creation Handler ---
+  const handleCreateGroup = async () => {
+    if (!userProfile || !newGroupName.trim() || !userDisplayName.trim()) return;
     try {
-      const household = await choreService.createHousehold(newHouseholdName.trim(), currentUser.uid);
-      if (household) {
-        const updatedProfile = await choreService.getUser(currentUser.uid);
+      // Use the new onboarding completion method which creates group + membership + updates name
+      const group = await choreService.completeOnboarding(
+        userProfile.id, 
+        newGroupName.trim(),
+        userDisplayName.trim()
+      );
+      if (group) {
+        setIsCreatingNewGroup(false);
+        // Refresh profile to reflect the new currentGroupId and potentially updated name
+        const updatedProfile = await choreService.getUser(userProfile.id);
         setUserProfile(updatedProfile);
+        setNewGroupName(''); // Reset input for future use
       }
     } catch (error) {
-      console.error("Failed to create household:", error);
+      console.error("Failed to setup group during onboarding:", error);
+      alert('Failed to complete onboarding. Please try again.');
     }
   };
 
@@ -270,111 +344,128 @@ export default function App() {
     setTimeout(() => setIsDialogOpen(true), 10);
   };
 
-  // --- Task Saving Logic (Creation & Recurrence) ---
-  const handleSaveTask = async (taskData: any) => {
-    if (!currentUser || !userProfile?.currentHouseholdId) {
-      console.error("Auth or household missing", { currentUser, userProfile });
+  // --- Task Saving Logic (Plan A: Generation) ---
+  const handleSaveTask = async (taskData: any, option: 'instance' | 'series' = 'series') => {
+    if (!userProfile?.currentGroupId) {
+      console.error("Group missing");
       return;
     }
 
     try {
-      const householdId = userProfile.currentHouseholdId;
-      const taskId = selectedInstance ? selectedInstance.taskId : doc(collection(db, 'tasks')).id;
+      const groupId = userProfile.currentGroupId;
       
-      const existingTask = tasks.find(t => t.id === taskId);
-      
-      const task: Task = {
-        id: taskId,
-        householdId,
+      // If saving as an instance (only this instance)
+      if (option === 'instance' && selectedInstance) {
+        const updatedInstance: Partial<TaskInstance> = {
+          id: selectedInstance.id,
+          taskId: selectedInstance.taskId,
+          dueDate: parseISO(taskData.dueDate).toISOString(),
+          assignedTo: taskData.assignedTo === 'unassigned' ? null : taskData.assignedTo,
+          status: taskData.status || selectedInstance.status,
+          priority: taskData.priority,
+          title: taskData.title,
+          description: taskData.description,
+        };
+        await choreService.saveInstance(updatedInstance);
+        return;
+      }
+
+      // Default logic: Save/Update the Series (the 'task' template)
+      const task: Partial<Task> = {
+        id: selectedInstance ? selectedInstance.taskId : undefined,
+        groupId,
         title: taskData.title,
         description: taskData.description || '',
-        recurrence: taskData.recurrence,
-        interval: taskData.recurrence === 'custom' ? taskData.interval : undefined,
-        weekDays: taskData.recurrence === 'custom' ? taskData.weekDays : undefined,
-        recurrenceEndDate: taskData.recurrenceEndDate || undefined,
-        createdBy: existingTask?.createdBy || currentUser.uid,
-        createdAt: existingTask?.createdAt || new Date().toISOString(),
+        isRecurring: taskData.recurrence !== 'none',
+        rrule: taskData.recurrence !== 'none' ? JSON.stringify({
+          freq: taskData.recurrence,
+          interval: taskData.interval || 1,
+          byday: taskData.weekDays || []
+        }) : undefined,
+        startDate: taskData.dueDate, // Use due date as start date if new
+        endDate: taskData.recurrenceEndDate || undefined,
+        priority: taskData.priority,
+        createdBy: userProfile.id,
       };
 
-      await choreService.saveTask(task);
+      const savedTask = await choreService.saveTask(task);
+      const taskId = savedTask.id;
 
-      const createInstances = async (startFrom: Date, assignedTo: string | undefined) => {
-        const instancesToCreate: TaskInstance[] = [];
+      const createInstances = async (startFrom: Date, assignedTo: number | undefined) => {
+        const instancesToCreate: Partial<TaskInstance>[] = [];
         let currentDate = startFrom;
         
-        // If recurrence is not 'none' and no end date is provided, default to 2 years (730 days)
         const defaultEndDate = addDays(currentDate, 730);
         const endDate = taskData.recurrenceEndDate ? parseISO(taskData.recurrenceEndDate) : defaultEndDate;
 
-          const createInstance = (date: Date) => ({
-            id: doc(collection(db, 'task_instances')).id,
+          const createInstance = (date: Date): Partial<TaskInstance> => ({
             taskId,
-            householdId,
+            groupId,
             dueDate: date.toISOString(),
-            assignedTo: assignedTo === 'unassigned' || !assignedTo ? null : assignedTo,
-            status: 'to do' as const,
-            priority: (taskData.priority === 'high' ? 'high' : null) as 'high' | null,
+            assignedTo: !assignedTo ? null : assignedTo,
+            status: 'TO DO',
+            priority: taskData.priority,
           });
 
         if (taskData.recurrence === 'none') {
           instancesToCreate.push(createInstance(currentDate));
-        } else if (taskData.recurrence === 'custom' && taskData.weekDays && taskData.weekDays.length > 0) {
-          let count = 0;
-          const maxInstances = 365;
-          const weekDays = taskData.weekDays;
-          const interval = taskData.interval || 1;
-          
-          // Use the start of the week of the dueDate as a reference point
-          const startOfWeekDate = startOfWeek(startFrom, { weekStartsOn: 1 });
-
-          while (count < maxInstances && (isBefore(currentDate, endDate) || format(currentDate, 'yyyy-MM-dd') === format(endDate, 'yyyy-MM-dd'))) {
-            const currentStartOfWeek = startOfWeek(currentDate, { weekStartsOn: 1 });
-            const weeksDiff = Math.abs(differenceInWeeks(currentStartOfWeek, startOfWeekDate));
-            
-            if (weeksDiff % interval === 0 && weekDays.includes(currentDate.getDay())) {
-              instancesToCreate.push(createInstance(currentDate));
-              count++;
-            }
-            currentDate = addDays(currentDate, 1);
-          }
         } else {
-          let count = 0;
-          const maxInstances = 365;
+          let iterationCount = 0;
+          const maxIterations = 730; // 2 years limit
+          const startDateObj = startOfDay(parseISO(taskData.dueDate));
+          const endDate = taskData.recurrenceEndDate ? startOfDay(parseISO(taskData.recurrenceEndDate)) : addDays(startDateObj, 730);
+          
+          while (iterationCount < maxIterations) {
+            // Termination check: stop if we passed the end date
+            if (isBefore(endDate, currentDate) && !isSameDay(currentDate, endDate)) {
+              break;
+            }
 
-          while (count < maxInstances && (isBefore(currentDate, endDate) || format(currentDate, 'yyyy-MM-dd') === format(endDate, 'yyyy-MM-dd'))) {
-            instancesToCreate.push(createInstance(currentDate));
+            if (taskData.recurrence === 'daily') {
+              instancesToCreate.push(createInstance(currentDate));
+              currentDate = addDays(currentDate, 1);
+            } else if (taskData.recurrence === 'weekly') {
+              instancesToCreate.push(createInstance(currentDate));
+              currentDate = addWeeks(currentDate, 1);
+            } else if (taskData.recurrence === 'monthly') {
+              instancesToCreate.push(createInstance(currentDate));
+              currentDate = addMonths(currentDate, 1);
+            } else if (taskData.recurrence === 'custom') {
+              const matchesDay = taskData.weekDays.length === 0 || taskData.weekDays.includes(getDay(currentDate));
+              // Use Monday (1) as week start for consistent interval calculation
+              const weekDiff = Math.abs(differenceInCalendarWeeks(currentDate, startDateObj, { weekStartsOn: 1 }));
+              const matchesInterval = weekDiff % (taskData.interval || 1) === 0;
+              
+              if (matchesDay && matchesInterval) {
+                instancesToCreate.push(createInstance(currentDate));
+              }
+              currentDate = addDays(currentDate, 1);
+            } else {
+              break; 
+            }
             
-            if (taskData.recurrence === 'daily') currentDate = addDays(currentDate, 1);
-            else if (taskData.recurrence === 'weekly') currentDate = addWeeks(currentDate, 1);
-            else if (taskData.recurrence === 'monthly') currentDate = addMonths(currentDate, 1);
-            
-            count++;
+            iterationCount++;
+            if (instancesToCreate.length >= 365) break; 
           }
         }
         await Promise.all(instancesToCreate.map(inst => choreService.saveInstance(inst)));
       };
 
       if (selectedInstance) {
-        const recurrenceChanged = existingTask?.recurrence !== taskData.recurrence;
-        const intervalChanged = existingTask?.interval !== taskData.interval;
-        const weekDaysChanged = JSON.stringify(existingTask?.weekDays || []) !== JSON.stringify(taskData.weekDays || []);
-        const endDateChanged = existingTask?.recurrenceEndDate !== (taskData.recurrenceEndDate || undefined);
-
-        if (recurrenceChanged || intervalChanged || weekDaysChanged || endDateChanged) {
-          // Restructure pattern: delete all and recreate
-          await choreService.deleteInstancesByTaskId(taskId);
-          await createInstances(parseISO(taskData.dueDate), taskData.assignedTo);
-        } else {
-          // Just update this instance
-          const updatedInstance: TaskInstance = {
-            ...selectedInstance,
+          // If updating 'series', we update the instance we are currently looking at as well.
+          // In a more complex system, we might update ALL future instances here.
+          const updatedInstance: Partial<TaskInstance> = {
+            id: selectedInstance.id,
+            taskId: selectedInstance.taskId,
             dueDate: parseISO(taskData.dueDate).toISOString(),
-            assignedTo: taskData.assignedTo === 'unassigned' || !taskData.assignedTo ? null : taskData.assignedTo,
+            assignedTo: taskData.assignedTo === 'unassigned' ? null : taskData.assignedTo,
             status: taskData.status || selectedInstance.status,
-            priority: (taskData.priority === 'high' ? 'high' : null) as 'high' | null,
+            priority: taskData.priority,
+            // When updating the series, we clear overrides on THIS instance so it inherits from the new series defaults
+            title: undefined,
+            description: undefined,
           };
           await choreService.saveInstance(updatedInstance);
-        }
       } else {
         await createInstances(parseISO(taskData.dueDate), taskData.assignedTo);
       }
@@ -385,7 +476,7 @@ export default function App() {
   };
 
   // --- Task Deletion Handler ---
-  const handleDeleteTask = async (id: string, deleteAll?: boolean) => {
+  const handleDeleteTask = async (id: number, deleteAll?: boolean) => {
     try {
       if (deleteAll) {
         const instance = instances.find(i => i.id === id);
@@ -425,24 +516,41 @@ export default function App() {
           <h1 className="text-3xl font-bold text-slate-900 mb-2">Welcome to ChoreFlow</h1>
           <p className="text-slate-500 mb-10">Organize your family chores with ease. Sign in to get started.</p>
           <Button 
-            onClick={() => signIn()} 
+            onClick={handleSignIn} 
             className="w-full h-14 text-lg bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 rounded-xl gap-3"
           >
             <LogIn className="h-5 w-5" />
             Sign in with Google
           </Button>
+
+          <div className="mt-8 pt-6 border-t border-slate-100 text-left">
+            <h3 className="text-sm font-semibold text-slate-900 mb-2">Having trouble?</h3>
+            <p className="text-xs text-slate-500 leading-relaxed space-y-1">
+              If you receive a <strong>403 error</strong> after signing in, ensure:
+              <ul className="list-disc pl-4 mt-1 space-y-1">
+                <li>You are not using a private browsing (Incognito) window.</li>
+                <li>Your browser allows third-party cookies.</li>
+                <li>
+                  The following redirect URIs are added to your <strong>Supabase Dashboard</strong> and <strong>Google Cloud Console</strong>:
+                  <code className="block mt-1 p-2 bg-slate-50 rounded border border-slate-100 break-all">
+                    {window.location.origin}/auth/callback
+                  </code>
+                </li>
+              </ul>
+            </p>
+          </div>
         </motion.div>
       </div>
     );
   }
 
-  // --- Joining Household Transition View ---
+  // --- Joining Group Transition View ---
   // Show joining screen if we have a pending invite AND user is logged in
   if (isJoining || (pendingInvite && currentUser)) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600 mb-4"></div>
-        <p className="text-slate-600 font-medium animate-pulse">Joining household...</p>
+        <p className="text-slate-600 font-medium animate-pulse">Joining group...</p>
       </div>
     );
   }
@@ -456,8 +564,8 @@ export default function App() {
     );
   }
 
-  // --- Household Onboarding View ---
-  if (!userProfile.currentHouseholdId) {
+  // --- Group Onboarding View ---
+  if (!userProfile.currentGroupId) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-6">
         <motion.div 
@@ -468,26 +576,52 @@ export default function App() {
           <div className="w-16 h-16 bg-indigo-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <Users className="text-indigo-600 h-8 w-8" />
           </div>
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">Create Your Household</h2>
-          <p className="text-slate-500 mb-8">Start by giving your household a name. You can invite family members later.</p>
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">Complete Your Setup</h2>
+          <p className="text-slate-500 mb-8">Set your name and create your first group to get started.</p>
           
-          <div className="space-y-4">
+          <div className="space-y-6">
             <div className="text-left space-y-2">
-              <label className="text-sm font-semibold text-slate-700 px-1">Household Name</label>
+              <label className="text-sm font-semibold text-slate-700 px-1">Your Display Name</label>
               <Input 
-                placeholder="e.g. The Smith Family" 
-                value={newHouseholdName}
-                onChange={(e) => setNewHouseholdName(e.target.value)}
+                placeholder="How should your family call you?" 
+                value={userDisplayName}
+                onChange={(e) => setUserDisplayName(e.target.value)}
                 className="h-12 rounded-xl border-slate-200 focus:ring-indigo-500"
               />
             </div>
-            <Button 
-              onClick={handleCreateHousehold} 
-              disabled={!newHouseholdName.trim()}
-              className="w-full h-12 bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 rounded-xl font-semibold transition-all active:scale-[0.98]"
-            >
-              Create New Household
-            </Button>
+
+            <div className="text-left space-y-2">
+              <label className="text-sm font-semibold text-slate-700 px-1">Group Name</label>
+              <Input 
+                placeholder="e.g. The Smith Family" 
+                value={newGroupName}
+                onChange={(e) => setNewGroupName(e.target.value)}
+                className="h-12 rounded-xl border-slate-200 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <Button 
+                onClick={handleCreateGroup} 
+                disabled={!newGroupName.trim() || !userDisplayName.trim()}
+                className="w-full h-12 bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 rounded-xl font-semibold transition-all active:scale-[0.98]"
+              >
+                Finish Setup
+              </Button>
+              
+              {userGroups.length > 0 && (
+                <Button 
+                  variant="ghost"
+                  onClick={() => {
+                    setIsCreatingNewGroup(false);
+                    // This will trigger the auto-select logic to pick the first group
+                  }}
+                  className="w-full h-10 text-slate-500 hover:text-slate-700"
+                >
+                  Cancel
+                </Button>
+              )}
+            </div>
           </div>
         </motion.div>
       </div>
@@ -540,11 +674,11 @@ export default function App() {
           </Button>
         </div>
 
-        {/* User & Household Context */}
+        {/* User & Group Context */}
         <div className={cn("mt-auto pt-5 px-6", !isSidebarOpen && "px-0 flex flex-col items-center")}>
           <div className="space-y-2 mb-2 w-full">
             {userProfile && (() => {
-              const displayInfo = getUserDisplayInfo(userProfile, currentHousehold?.id);
+              const displayInfo = { name: userProfile.name, color: userProfile.color };
               return (
                 <div 
                   key={userProfile.id} 
@@ -564,14 +698,16 @@ export default function App() {
                     {displayInfo.name[0]}
                   </div>
                   {isSidebarOpen && (
-                    <span className="text-sm font-medium text-slate-600 group-hover:text-slate-900 truncate">{displayInfo.name}</span>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-sm font-medium text-slate-600 group-hover:text-slate-900 truncate">{displayInfo.name}</span>
+                    </div>
                   )}
                 </div>
               );
             })()}
           </div>
           
-          {/* Household Selector */}
+          {/* Group Selector */}
           <div className="mb-2 w-full flex justify-center">
             <DropdownMenu>
               <DropdownMenuTrigger render={
@@ -587,7 +723,7 @@ export default function App() {
                   </div>
                   {isSidebarOpen && (
                     <>
-                      <span className="text-sm font-medium truncate">{currentHousehold?.name || 'Loading...'}</span>
+                      <span className="text-sm font-medium truncate">{currentGroup?.name || 'Loading...'}</span>
                       <ChevronDown className="h-5 w-5 ml-auto text-slate-400 group-hover:text-indigo-400 transition-colors" />
                     </>
                   )}
@@ -595,18 +731,18 @@ export default function App() {
               } />
               <DropdownMenuContent className="w-56 rounded-xl shadow-xl border-slate-100 p-2" align={isSidebarOpen ? "start" : "center"}>
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2 py-1.5">My Households</DropdownMenuLabel>
-                  {userHouseholds.map((household) => (
+                  <DropdownMenuLabel className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2 py-1.5">My Groups</DropdownMenuLabel>
+                  {userGroups.map((group) => (
                     <DropdownMenuItem 
-                      key={household.id}
-                      onClick={() => handleSwitchHousehold(household.id)}
+                      key={group.id}
+                      onClick={() => handleSwitchGroup(group.id)}
                       className={cn(
                         "rounded-lg font-medium text-sm py-2.5 px-3 cursor-pointer flex items-center justify-between",
-                        household.id === currentHousehold?.id ? "bg-indigo-50 text-indigo-600" : "focus:bg-slate-50"
+                        group.id === currentGroup?.id ? "bg-indigo-50 text-indigo-600" : "focus:bg-slate-50"
                       )}
                     >
-                      <span className="truncate">{household.name}</span>
-                      {household.id === currentHousehold?.id && (
+                      <span className="truncate">{group.name}</span>
+                      {group.id === currentGroup?.id && (
                         <div className="w-1.5 h-1.5 rounded-full bg-indigo-600" />
                       )}
                     </DropdownMenuItem>
@@ -615,12 +751,13 @@ export default function App() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem 
                   onClick={() => {
-                    setUserProfile(prev => prev ? { ...prev, currentHouseholdId: undefined } : null);
+                    setIsCreatingNewGroup(true);
+                    setUserProfile(prev => prev ? { ...prev, currentGroupId: undefined } : null);
                   }}
                   className="rounded-lg font-medium text-sm py-2.5 px-3 focus:bg-indigo-50 focus:text-indigo-600 cursor-pointer text-indigo-600"
                 >
                   <Plus className="h-5 w-5 mr-2" />
-                  New Household
+                  New Group
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -676,7 +813,7 @@ export default function App() {
             tasks={tasks}
             users={users} 
             currentUserId={userProfile.id}
-            householdId={currentHousehold?.id}
+            groupId={currentGroup?.id}
             onAddTask={handleAddTask} 
             onEditTask={handleEditTask} 
           />
@@ -694,13 +831,13 @@ export default function App() {
         users={users}
         initialDate={initialDate}
         currentUserId={userProfile.id}
-        householdId={currentHousehold?.id}
+        groupId={currentGroup?.id}
       />
 
       {isSettingsOpen && userProfile && (
         <SettingsModal 
           currentUser={userProfile}
-          currentHousehold={currentHousehold}
+          currentGroup={currentGroup}
           initialEditingUser={userToEdit}
           onClose={() => {
             setIsSettingsOpen(false);

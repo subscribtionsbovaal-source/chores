@@ -1,17 +1,17 @@
 /**
  * Represents the global access level of a user within the entire system.
- * 'system_admin' has total oversight across all households.
- * 'user' is restricted to their assigned households.
+ * 'system_admin' has total oversight across all groups.
+ * 'user' is restricted to their assigned groups.
  */
-export type GlobalRole = 'system_admin' | 'user';
+export type GlobalRole = 'system_admin' | 'user' | 'ADMIN' | 'MEMBER';
 
 /**
- * Represents household-specific profile overrides.
+ * Represents group-specific profile overrides.
  */
-export interface UserHouseholdSettings {
-  /** The display name used within this specific household. */
+export interface UserGroupSettings {
+  /** The display name used within this specific group. */
   name?: string;
-  /** The color used for this user within this specific household. */
+  /** The color used for this user within this specific group. */
   color?: string;
 }
 
@@ -20,9 +20,11 @@ export interface UserHouseholdSettings {
  * This is the primary identity object linked to Firebase Authentication.
  */
 export interface User {
-  /** The unique Firebase Auth UID. */
-  id: string;
-  /** The global display name chosen by the user or synced from Google. */
+  /** The unique numeric ID in Supabase. */
+  id: number;
+  /** The unique Supabase Auth UUID (Auth ID). */
+  authId: string;
+  /** The global display name chosen by the user or synced. */
   name: string;
   /** The user's verified email address. */
   email: string;
@@ -32,34 +34,32 @@ export interface User {
   color: string;
   /** See {@link GlobalRole} for permission levels. */
   role: GlobalRole;
-  /** List of IDs for households the user is a member of. */
-  householdIds: string[];
-  /** The ID of the household currently being viewed by the user. */
-  currentHouseholdId?: string;
-  /** Household-specific profile overrides. Keyed by householdId. */
-  householdSettings?: Record<string, UserHouseholdSettings>;
+  /** The ID of the group currently being viewed by the user. */
+  currentGroupId?: number;
+  /** Whether the user is a system admin. */
+  isSysAdmin: boolean;
 }
 
 /**
  * Represents a collection of users sharing tasks and schedules.
- * A household acts as a logical container for all collaborative data.
+ * A group acts as a logical container for all collaborative data.
  */
-export interface Household {
-  /** Unique identifier for the household. */
-  id: string;
-  /** Display name of the family or group (e.g., "The Smiths"). */
+export interface Group {
+  /** Unique identifier for the group. */
+  id: number;
+  /** Display name of the group (e.g., "The Smiths"). */
   name: string;
-  /** UID of the user who initially created the household. */
-  createdBy: string;
-  /** Array of User IDs who belong to this household. */
-  members: string[];
-  /** Array of User IDs with administrative rights within this specific household. */
-  admins: string[];
-  /** ISO 8601 timestamp of when the household was created. */
+  /** ID of the user who initially created the group. */
+  createdBy: number;
+  /** Array of User IDs who belong to this group (computed or separate query). */
+  members?: number[];
+  /** ISO 8601 timestamp of when the group was created. */
   createdAt: string;
-  /** A random string used in invitation URLs to allow new members to join. */
+  /** A random string used in invitation URLs. */
   invitationToken?: string;
 }
+
+// Removed Household alias in favor of Group
 
 /**
  * Represents a specific invite sent to an email address.
@@ -68,10 +68,10 @@ export interface Household {
 export interface Invitation {
   /** Unique ID for the invitation record. */
   id: string;
-  /** The random token associated with the target {@link Household}. */
+  /** The random token associated with the target {@link Group}. */
   token: string;
-  /** The ID of the {@link Household} the invite is for. */
-  householdId: string;
+  /** The ID of the {@link Group} the invite is for. */
+  groupId: string;
   /** The target email address for this invite. */
   email: string;
   /** The role intended for the new user (default is usually 'user'). */
@@ -106,48 +106,59 @@ export type TaskRecurrence = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
  */
 export interface Task {
   /** Unique ID for the task template. */
-  id: string;
-  /** Reference to the {@link Household} this task belongs to. */
-  householdId: string;
+  id: number;
+  /** Reference to the {@link Group} this task belongs to. */
+  groupId: number;
   /** Title of the chore or activity. */
   title: string;
   /** Detailed instructions or notes for the performer. */
   description?: string;
-  /** The repetition interval. See {@link TaskRecurrence}. */
-  recurrence: TaskRecurrence;
-  /** Number representing frequency (e.g., interval of 2 with 'weekly' means "every 2 weeks"). */
-  interval?: number;
-  /** Array of numbers (0-6) representing Sunday through Saturday for custom recurrence. */
-  weekDays?: number[];
-  /** ISO 8601 string for when the repetition pattern should stop generating instances. */
-  recurrenceEndDate?: string;
-  /** UID of the creator. */
-  createdBy: string;
-  /** ISO 8601 timestamp of when the blueprint was defined. */
+  /** Whether the task is recurring. */
+  isRecurring: boolean;
+  /** rrule string for recurrence. */
+  rrule?: string;
+  /** Start date for the task pattern. */
+  startDate?: string;
+  /** ISO 8601 string for when the repetition pattern should stop. */
+  endDate?: string;
+  /** ID of the user assigned to this template. */
+  assignedTo?: number;
+  /** Priority level. */
+  priority: 'LOW' | 'REGULAR' | 'HIGH';
+  /** ID of the creator. */
+  createdBy: number;
+  /** ISO 8601 timestamp of creation. */
   createdAt: string;
 }
 
 /**
  * Represents a single occurrence of a task on the calendar.
- * Multiple instances can be linked to a single {@link Task} blueprint via 'taskId'.
  */
 export interface TaskInstance {
   /** Unique ID for this specific calendar occurrence. */
-  id: string;
+  id: number;
   /** Reference to the parent {@link Task} blueprint. */
-  taskId: string;
-  /** Reference to the owner {@link Household}. */
-  householdId: string;
+  taskId: number;
+  /** Reference to the owner {@link Group}. (In Supabase, this is often joined from Task) */
+  groupId: number;
   /** The specific ISO 8601 date/time this instance is scheduled for. */
   dueDate: string;
-  /** The UID of the user assigned to this specific occurrence (null if unassigned). */
-  assignedTo?: string | null;
+  /** The ID of the user assigned to this specific occurrence. */
+  assignedTo?: number | null;
   /** ISO 8601 timestamp of completion. */
-  completedAt?: string;
-  /** UID of the user who marked it as done. */
-  completedBy?: string;
-  /** The current state: 'to do' (active) or 'done' (completed). */
-  status: 'to do' | 'done';
-  /** Priority level for the task. 'high' adds a burning/fire indicator. */
-  priority?: 'high' | null;
+  completedAt?: string | null;
+  /** ID of the user who marked it as done. */
+  completedBy?: number | null;
+  /** The current state: 'TO DO', 'IN PROGRESS', or 'DONE'. */
+  status: 'TO DO' | 'IN PROGRESS' | 'DONE';
+  /** Priority override. */
+  priority: 'LOW' | 'REGULAR' | 'HIGH';
+  /** Title override. */
+  title?: string;
+  /** Description override. */
+  description?: string;
+  /** Whether the parent task is recurring. */
+  isRecurring?: boolean;
+  /** ISO 8601 timestamp of creation. */
+  createdAt?: string;
 }

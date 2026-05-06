@@ -20,19 +20,18 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { TaskInstance, Task, User } from '../types';
 import { choreService } from '../lib/choreService';
-import { getUserDisplayInfo } from '../lib/userUtils';
 
 interface CalendarProps {
-  /** Array of all task occurrences within the current household context. */
+  /** Array of all task occurrences within the current group context. */
   instances: TaskInstance[];
-  /** Array of all task templates (blueprints) available in the household. */
+  /** Array of all task templates (blueprints) available in the group. */
   tasks: Task[];
-  /** List of all household members for color coding and assignment display. */
+  /** List of all group members for color coding and assignment display. */
   users: User[];
-  /** The unique ID of the currently authenticated user. */
-  currentUserId: string;
-  /** The ID of the current household context. */
-  householdId?: string;
+  /** The unique numeric ID of the currently authenticated user. */
+  currentUserId: number;
+  /** The numeric ID of the current group context. */
+  groupId?: number;
   /** Triggered when the user clicks 'plus' or a day to create a new task. */
   onAddTask: (date: Date) => void;
   /** Triggered when a task card is clicked for editing. */
@@ -49,7 +48,7 @@ export const Calendar: React.FC<CalendarProps> = ({
   tasks, 
   users, 
   currentUserId, 
-  householdId,
+  groupId,
   onAddTask, 
   onEditTask 
 }) => {
@@ -113,27 +112,25 @@ export const Calendar: React.FC<CalendarProps> = ({
       .filter(instance => isSameDay(new Date(instance.dueDate), day))
       .sort((a, b) => {
         // Primary: Status (Active vs. Done)
-        if (a.status === 'done' && b.status !== 'done') return 1;
-        if (a.status !== 'done' && b.status === 'done') return -1;
+        if (a.status === 'DONE' && b.status !== 'DONE') return 1;
+        if (a.status !== 'DONE' && b.status === 'DONE') return -1;
         
         // Secondary: Title (Alphabetical)
-        const taskA = getTaskForInstance(a.taskId);
-        const taskB = getTaskForInstance(b.taskId);
-        const titleA = taskA?.title.toLowerCase() || '';
-        const titleB = taskB?.title.toLowerCase() || '';
+        const titleA = (a.title || '').toLowerCase();
+        const titleB = (b.title || '').toLowerCase();
         if (titleA < titleB) return -1;
         if (titleA > titleB) return 1;
 
         // Tertiary: ID (Fallback for absolute stability)
-        return a.id.localeCompare(b.id);
+        return a.id - b.id;
       });
   };
 
-  const getTaskForInstance = (taskId: string) => tasks.find(t => t.id === taskId);
-  const getUserColor = (userId?: string) => {
+  const getTaskForInstance = (taskId: number) => tasks.find(t => t.id === taskId);
+  const getUserColor = (userId?: number) => {
     const user = users.find(u => u.id === userId);
     if (!user) return '#cbd5e1';
-    return getUserDisplayInfo(user, householdId).color;
+    return user.color;
   };
 
   return (
@@ -258,7 +255,7 @@ export const Calendar: React.FC<CalendarProps> = ({
                 {getInstancesForDay(referenceDate).map((instance) => {
                   const taskDef = getTaskForInstance(instance.taskId);
                   const assignedUser = users.find(u => u.id === instance.assignedTo);
-                  const isDone = instance.status === 'done';
+                  const isDone = instance.status === 'DONE';
                   
                   return (
                     <div key={instance.id}>
@@ -293,9 +290,9 @@ export const Calendar: React.FC<CalendarProps> = ({
                               "text-lg font-bold leading-tight truncate",
                               isDone ? "text-slate-400 line-through" : "text-slate-800"
                             )}>
-                              {taskDef?.title || 'Unknown Task'}
+                              {instance.title || 'Unknown Task'}
                             </h4>
-                            {instance.priority === 'high' && (
+                            {instance.priority === 'HIGH' && (
                               <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-100 text-orange-600">
                                 <Flame className="h-3 w-3 fill-orange-600" />
                                 <span className="text-[10px] font-bold uppercase tracking-wider">Burning</span>
@@ -381,7 +378,7 @@ export const Calendar: React.FC<CalendarProps> = ({
               <div className="space-y-1.5 overflow-y-auto flex-1 min-h-0 scrollbar-hide">
                 {dayInstances.map((instance) => {
                   const task = getTaskForInstance(instance.taskId);
-                  const isDone = instance.status === 'done';
+                  const isDone = instance.status === 'DONE';
                   
                   return (
                     <div
@@ -401,7 +398,7 @@ export const Calendar: React.FC<CalendarProps> = ({
                     >
                       <div className="flex items-center gap-1.5 truncate pr-5">
                         {/* Render the user's assigned color dot if the task is assigned to someone. */}
-                        {instance.assignedTo && instance.assignedTo !== 'unassigned' && (
+                        {instance.assignedTo && instance.assignedTo !== 0 && (
                           <div 
                             className={cn(
                               "w-1.5 h-1.5 rounded-full shrink-0",
@@ -411,7 +408,7 @@ export const Calendar: React.FC<CalendarProps> = ({
                           />
                         )}
                         {/* Priority Icon */}
-                        {instance.priority === 'high' && (
+                        {instance.priority === 'HIGH' && (
                           <Flame className={cn("h-3 w-3 shrink-0 text-orange-500 fill-orange-500", isDone && "opacity-40")} />
                         )}
                         {/* Title with strikethrough effect for completed tasks. */}
@@ -419,7 +416,7 @@ export const Calendar: React.FC<CalendarProps> = ({
                           "truncate transition-all duration-300",
                           isDone && "line-through text-emerald-600/60"
                         )}>
-                          {task?.title || 'Task'}
+                          {instance.title || 'Task'}
                         </span>
                       </div>
 

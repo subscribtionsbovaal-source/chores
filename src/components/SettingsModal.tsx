@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { User, Household, GlobalRole, UserHouseholdSettings } from '../types';
+import { User, Group, GlobalRole } from '../types';
 import { choreService } from '../lib/choreService';
-import { getUserDisplayInfo } from '../lib/userUtils';
+import { supabase } from '../lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { Shield, User as UserIcon, Home, ChevronRight, Save, X, Settings, Users, LogOut, TriangleAlert, Check, Link as LinkIcon, Copy, RefreshCw, Mail, Send } from 'lucide-react';
-import { signOut } from '../lib/firebase';
 
 const PROFILE_COLORS = [
   { name: 'Indigo', value: '#4f46e5' },
@@ -29,28 +28,28 @@ const getColorName = (hex: string) => {
 
 interface SettingsModalProps {
   currentUser: User;
-  currentHousehold: Household | null;
+  currentGroup: Group | null;
   onClose: () => void;
   initialEditingUser?: User | null;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, currentHousehold, onClose, initialEditingUser }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, currentGroup, onClose, initialEditingUser }) => {
   // --- View & Editing State ---
   const [view, setView] = useState<'menu' | 'edit_user' | 'system_admin'>('menu');
   const [editingUser, setEditingUser] = useState<User | null>(initialEditingUser || null);
   
-  // --- Household Management State ---
-  const [householdName, setHouseholdName] = useState('');
-  const [householdAdmins, setHouseholdAdmins] = useState<string[]>([]);
+  // --- Group Management State ---
+  const [groupName, setGroupName] = useState('');
+  const [groupAdmins, setGroupAdmins] = useState<number[]>([]);
   
   // --- Data & Lists State ---
-  const [householdUsers, setHouseholdUsers] = useState<User[]>([]);
+  const [groupUsers, setGroupUsers] = useState<User[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
-  const [allHouseholds, setAllHouseholds] = useState<Household[]>([]);
+  const [allGroups, setAllGroups] = useState<Group[]>([]);
   
   // --- Interaction & Feedback State ---
   const [pendingRoleChange, setPendingRoleChange] = useState<{
-    userId: string;
+    userId: number;
     userName: string;
     newRole: string;
     isGlobal: boolean;
@@ -59,55 +58,49 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
   const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
   const [showCopySuccess, setShowCopySuccess] = useState(false);
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [isSendingInvite, setIsSendingInvite] = useState(false);
   const [inviteStatus, setInviteStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
   // --- Role Helpers ---
-  const isSystemAdmin = currentUser.role === 'system_admin';
-  const isHouseholdAdmin = currentHousehold?.admins.includes(currentUser.id) || isSystemAdmin;
+  const isSystemAdmin = currentUser.isSysAdmin;
+  const isGroupAdmin = currentUser.role === 'ADMIN' || isSystemAdmin;
 
   const updateEditingUserDisplayField = (field: 'name' | 'color', value: string) => {
-    if (!editingUser || !currentHousehold) return;
-    
-    // In household menu view, we specifically target the household override
-    const householdId = currentHousehold.id;
-    const currentSettings = editingUser.householdSettings || {};
-    const householdSpecific = currentSettings[householdId] || {};
-    
-    const newHouseholdSettings: Record<string, UserHouseholdSettings> = {
-      ...currentSettings,
-      [householdId]: {
-        ...householdSpecific,
-        [field]: value
-      }
-    };
+    if (!editingUser) return;
     
     setEditingUser({
       ...editingUser,
-      householdSettings: newHouseholdSettings
+      [field]: value
     });
   };
 
-  // --- Effect: Sync Household Data ---
+  // --- Effect: Sync Group Data ---
   useEffect(() => {
-    if (currentHousehold) {
-      setHouseholdName(currentHousehold.name);
-      setHouseholdAdmins(currentHousehold.admins);
-      const unsub = choreService.subscribeToHouseholdUsers(currentHousehold.id, setHouseholdUsers);
+    if (currentGroup) {
+      setGroupName(currentGroup.name);
+      
+      const unsub = choreService.subscribeToGroupUsers(currentGroup.id, (users) => {
+        setGroupUsers(users);
+        // Identify admins from the users list
+        const admins = users.filter(u => u.role === 'ADMIN').map(u => u.id);
+        setGroupAdmins(admins);
+      });
+      
       return () => unsub();
     }
-  }, [currentHousehold]);
+  }, [currentGroup]);
 
   // --- Effect: Load System Admin Data ---
   useEffect(() => {
     if (isSystemAdmin && view === 'system_admin') {
       const loadAll = async () => {
         const users = await choreService.getAllUsers();
-        const households = await choreService.getAllHouseholds();
+        const groups = await choreService.getAllGroups();
         if (users) setAllUsers(users);
-        if (households) setAllHouseholds(households);
+        if (groups) setAllGroups(groups);
       };
       loadAll();
     }
@@ -124,31 +117,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
     e.preventDefault();
     if (!editingUser) return;
     await choreService.updateUser(editingUser.id, editingUser);
-    
-    // Also update household admins if they were changed in this view
-    if (currentHousehold && JSON.stringify(householdAdmins) !== JSON.stringify(currentHousehold.admins)) {
-      await handleUpdateHousehold();
-    }
-    
     setEditingUser(null);
   };
 
-  // --- Handler: Update Household Settings ---
-  const handleUpdateHousehold = async () => {
-    if (!currentHousehold) return;
-    await choreService.updateHousehold(currentHousehold.id, {
-      ...currentHousehold,
-      name: householdName,
-      admins: householdAdmins
-    });
+  // --- Handler: Update Group Settings ---
+  const handleUpdateGroup = async () => {
+    if (!currentGroup) return;
+
+    try {
+      // Update group name only (Strictly group table)
+      await choreService.updateGroup(currentGroup.id, {
+        name: groupName
+      });
+      setShowSaveSuccess(true);
+      setTimeout(() => setShowSaveSuccess(false), 3000);
+    } catch (error) {
+      console.error('Failed to update group:', error);
+    }
   };
 
   // --- Handler: Invitation Link Generation ---
   const handleGenerateToken = async () => {
-    if (!currentHousehold) return;
+    if (!currentGroup) return;
     setIsGenerating(true);
     try {
-      await choreService.generateInvitationToken(currentHousehold.id);
+      await choreService.generateInvitationToken(currentGroup.id);
     } finally {
       setIsGenerating(false);
     }
@@ -156,8 +149,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
 
   // --- Handler: Copy Link to Clipboard ---
   const handleCopyLink = () => {
-    if (!currentHousehold?.invitationToken) return;
-    const link = `${window.location.origin}?invite=${currentHousehold.invitationToken}`;
+    if (!currentGroup?.invitationToken) return;
+    const link = `${window.location.origin}?invite=${currentGroup.invitationToken}`;
     navigator.clipboard.writeText(link);
     setShowCopySuccess(true);
     setTimeout(() => setShowCopySuccess(false), 2000);
@@ -165,21 +158,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
 
   // --- Handler: Send Email Invitation ---
   const handleSendInvite = async () => {
-    if (!currentHousehold || !inviteEmail.trim()) return;
+    if (!currentGroup || !inviteEmail.trim()) return;
     setIsSendingInvite(true);
     setInviteStatus(null);
     try {
-      // 1. Create invitation record in Firestore
-      await choreService.createInvitation(currentHousehold.id, inviteEmail.trim(), currentUser.id);
+      // 1. Create invitation record in Firestore (or Supabase equivalent)
+      await choreService.createInvitation(currentGroup.id, inviteEmail.trim(), currentUser.id);
       
       // 2. Send email via server API
-      const inviteLink = `${window.location.origin}?invite=${currentHousehold.invitationToken}`;
+      const inviteLink = `${window.location.origin}?invite=${currentGroup.invitationToken}`;
       const response = await fetch('/api/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: inviteEmail.trim(),
-          householdName: currentHousehold.name,
+          groupName: currentGroup.name,
           inviteLink,
           invitedBy: currentUser.name
         })
@@ -198,6 +191,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
     }
   };
 
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    onClose();
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
       <motion.div 
@@ -214,7 +212,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
             <div>
               <h2 className="text-lg font-bold text-slate-900">Settings</h2>
               <p className="text-xs text-slate-500 font-medium">
-                {isSystemAdmin ? 'System Administrator' : isHouseholdAdmin ? 'Household Administrator' : 'User Settings'}
+                {isSystemAdmin ? 'System Administrator' : isGroupAdmin ? 'Group Administrator' : 'User Settings'}
               </p>
             </div>
           </div>
@@ -234,48 +232,77 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                 exit={{ opacity: 0, x: 20 }}
                 className="space-y-6"
               >
-                {/* --- Household Settings Section --- */}
-                {currentHousehold && (
+                {/* --- Group Settings Section --- */}
+                {currentGroup && (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between px-1">
-                      <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Household Settings</h3>
-                      {isHouseholdAdmin && (
-                        <Button 
-                          size="sm" 
-                          onClick={handleUpdateHousehold}
-                          disabled={householdName === currentHousehold.name && JSON.stringify(householdAdmins) === JSON.stringify(currentHousehold.admins)}
-                          className="h-10 w-[100px] bg-indigo-600 hover:bg-indigo-700 text-xs font-bold gap-1.5 rounded-lg"
-                        >
-                          <Save className="h-5 w-5" />
-                          Save
-                        </Button>
-                      )}
+                      <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Group Settings</h3>
                     </div>
                     
                     <div className="p-4 rounded-2xl border border-slate-50 bg-slate-50/50 space-y-4">
                       <div className="space-y-1.5">
-                        <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Household Name</Label>
-                        <Input 
-                          value={householdName}
-                          onChange={(e) => setHouseholdName(e.target.value)}
-                          readOnly={!isHouseholdAdmin}
-                          className={cn(
-                            "h-10 rounded-xl border-slate-200 focus:ring-indigo-500 bg-white",
-                            !isHouseholdAdmin && "bg-slate-50 text-slate-500 cursor-not-allowed"
+                        <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Group Name</Label>
+                        <div className="flex gap-2">
+                          <Input 
+                            value={groupName}
+                            onChange={(e) => setGroupName(e.target.value)}
+                            readOnly={!isGroupAdmin}
+                            className={cn(
+                              "h-10 rounded-xl border-slate-200 focus:ring-indigo-500 bg-white flex-1",
+                              !isGroupAdmin && "bg-slate-50 text-slate-500 cursor-not-allowed"
+                            )}
+                          />
+                          {isGroupAdmin && (
+                            <Button 
+                              onClick={handleUpdateGroup}
+                              disabled={groupName === (currentGroup?.name || '') || showSaveSuccess}
+                              className={cn(
+                                "h-10 w-[100px] rounded-xl text-xs font-bold transition-all relative overflow-hidden",
+                                showSaveSuccess 
+                                  ? "bg-emerald-500 hover:bg-emerald-600 text-white" 
+                                  : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                              )}
+                            >
+                              <AnimatePresence mode="wait">
+                                {showSaveSuccess ? (
+                                  <motion.div
+                                    key="saved"
+                                    initial={{ y: 20, opacity: 0 }}
+                                    animate={{ y: 0, opacity: 1 }}
+                                    exit={{ y: -20, opacity: 0 }}
+                                    className="flex items-center justify-center gap-1.5"
+                                  >
+                                    <Check className="h-4 w-4" />
+                                    Saved!
+                                  </motion.div>
+                                ) : (
+                                  <motion.div
+                                    key="save"
+                                    initial={{ y: 20, opacity: 0 }}
+                                    animate={{ y: 0, opacity: 1 }}
+                                    exit={{ y: -20, opacity: 0 }}
+                                    className="flex items-center justify-center gap-1.5"
+                                  >
+                                    <Save className="h-4 w-4" />
+                                    Save
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </Button>
                           )}
-                        />
+                        </div>
                       </div>
 
                       {/* --- Invitation Link Sub-section --- */}
-                      {isHouseholdAdmin && (
+                      {isGroupAdmin && (
                         <div className="space-y-1.5 pt-2">
                           <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Invitation Link</Label>
-                          {currentHousehold.invitationToken ? (
+                          {currentGroup.invitationToken ? (
                             <div className="flex gap-2">
                               <div className="relative flex-1">
                                 <Input 
                                   readOnly
-                                  value={`${window.location.origin}?invite=${currentHousehold.invitationToken}`}
+                                  value={`${window.location.origin}?invite=${currentGroup.invitationToken}`}
                                   className="h-10 rounded-xl border-slate-200 bg-slate-50 pr-10 text-xs font-mono text-slate-500"
                                 />
                                 <Button
@@ -325,7 +352,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                       )}
 
                       {/* --- Email Invitation Sub-section --- */}
-                      {currentHousehold.invitationToken && (
+                      {currentGroup.invitationToken && (
                         <div className="space-y-1.5 pt-4 border-t border-slate-100">
                           <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Invite via Email</Label>
                           <div className="flex gap-2">
@@ -342,7 +369,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                             <Button
                               onClick={handleSendInvite}
                               disabled={isSendingInvite || !inviteEmail.trim()}
-                              className="h-10 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-2"
+                              className="h-10 w-[100px] px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-2"
                             >
                               {isSendingInvite ? (
                                 <RefreshCw className="h-3.5 w-3.5 animate-spin" />
@@ -370,34 +397,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                   </div>
                 )}
 
-                {/* --- Household Members List --- 
-                    This section displays all members of the current household.
+                {/* --- Group Members List --- 
+                    This section displays all members of the current group.
                     Users can view everyone, but can only edit themselves unless they are an admin.
                 */}
-                {currentHousehold && (
+                {currentGroup && (
                   <div className="mt-8">
-                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 px-1">Household Members</h3>
+                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 px-1">Group Members</h3>
                     <div className="space-y-3">
-                      {/* Map through each user in the household to create a list item */}
-                      {householdUsers.map(user => {
-                        const displayInfo = getUserDisplayInfo(user, currentHousehold?.id);
+                      {/* Map through each user in the group to create a list item */}
+                      {groupUsers.map(user => {
+                        const displayInfo = { name: user.name, color: user.color };
                         
                         // Check if this specific user is currently being edited in the UI
                         const isEditing = editingUser?.id === user.id;
                         
-                        // Determine if the logged-in user has permission to edit this member's profile.
-                        // Permissions: System Admins can edit anyone, Household Admins can edit members whose active household 
-                        // matches the one they manage, and regular users can only edit their own profile.
-                        const canEdit = isSystemAdmin || (isHouseholdAdmin && user.currentHouseholdId === currentHousehold?.id) || user.id === currentUser.id;
+                        // Permissions: System Admins can edit anyone, and regular users can only edit their own profile.
+                        const canEdit = isSystemAdmin || user.id === currentUser.id;
                         
-                        const editingDisplayInfo = editingUser ? getUserDisplayInfo(editingUser, currentHousehold?.id) : displayInfo;
+                        const editingDisplayInfo = editingUser || displayInfo;
 
                         // Check if any changes have been made to the user's data during editing
-                        // to enable/disable the 'Save' button later.
                         const hasChanges = isEditing && (
                           editingDisplayInfo.name !== displayInfo.name || 
-                          editingDisplayInfo.color !== displayInfo.color || 
-                          (householdAdmins.includes(user.id) !== (currentHousehold?.admins.includes(user.id) ?? false))
+                          editingDisplayInfo.color !== displayInfo.color
                         );
                         
                         return (
@@ -440,8 +463,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                     {user.id === currentUser.id && (
                                       <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-600 text-[8px] font-bold uppercase tracking-wider">You</span>
                                     )}
-                                    {/* 'Admin' badge if the user is a household administrator */}
-                                    {householdAdmins.includes(user.id) && (
+                                    {/* 'Admin' badge if the user is a group administrator */}
+                                    {groupAdmins.includes(user.id) && (
                                       <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-600 text-[8px] font-bold uppercase tracking-wider">Admin</span>
                                     )}
                                   </div>
@@ -491,13 +514,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                         />
                                       </div>
 
-                                      {/* Household Role Selector:
+                                      {/* Group Role Selector:
                                           Allows promoting or demoting users between 'User' and 'Admin' roles.
-                                          Only visible to Household or System Admins.
+                                          Only visible to Group or System Admins.
                                       */}
-                                      {(isSystemAdmin || isHouseholdAdmin) && currentHousehold && (
+                                      {(isSystemAdmin || isGroupAdmin) && currentGroup && (
                                         <div className="space-y-1.5">
-                                          <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Household Role</Label>
+                                          <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Group Role</Label>
                                           <div className="relative">
                                             {/* Dropdown Trigger Button */}
                                             <button
@@ -506,7 +529,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                               className="w-full h-10 rounded-xl border border-slate-200 px-3 flex items-center justify-between bg-white hover:border-indigo-300 transition-all"
                                             >
                                               <span className="text-sm font-medium text-slate-700">
-                                                {householdAdmins.includes(editingUser.id) ? 'Admin' : 'User'}
+                                                {groupAdmins.includes(editingUser.id) ? 'Admin' : 'User'}
                                               </span>
                                               <ChevronRight className={cn("h-5 w-5 text-slate-400 transition-transform", isRoleDropdownOpen && "rotate-90")} />
                                             </button>
@@ -525,20 +548,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                                     { id: 'admin', label: 'Admin', icon: Shield }
                                                   ].map((role) => {
                                                     // Check if this role is the one currently assigned to the user
-                                                    const isSelected = (role.id === 'admin' && householdAdmins.includes(editingUser.id)) || 
-                                                                     (role.id === 'user' && !householdAdmins.includes(editingUser.id));
+                                                    const isSelected = (role.id === 'admin' && groupAdmins.includes(editingUser.id)) || 
+                                                                     (role.id === 'user' && !groupAdmins.includes(editingUser.id));
                                                     return (
                                                       <button
                                                         key={role.id}
                                                         type="button"
                                                         onClick={() => {
                                                           const newRole = role.id;
-                                                          const isAdmin = householdAdmins.includes(editingUser.id);
+                                                          const isAdmin = groupAdmins.includes(editingUser.id);
                                                           
                                                           // Logic for demoting an Admin to a regular User
                                                           if (newRole === 'user' && isAdmin) {
-                                                            // Prevent removing the last admin from the household
-                                                            if (householdAdmins.length <= 1) {
+                                                            // Prevent removing the last admin from the group
+                                                            if (groupAdmins.length <= 1) {
                                                               setShowAdminError(true);
                                                               return;
                                                             }
@@ -555,7 +578,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                                             setPendingRoleChange({
                                                               userId: editingUser.id,
                                                               userName: editingUser.name,
-                                                              newRole: 'Household Admin',
+                                                              newRole: 'Group Admin',
                                                               isGlobal: false
                                                             });
                                                           }
@@ -642,11 +665,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                                     {/* Role Description Hint:
                                         Explains what the 'Admin' vs 'User' roles mean in practice.
                                     */}
-                                    {isHouseholdAdmin && currentHousehold && (
+                                    {isGroupAdmin && currentGroup && (
                                       <p className="text-[9px] text-slate-500 ml-1 -mt-2">
-                                        {householdAdmins.includes(editingUser.id) 
-                                          ? "Admins can manage household settings and members." 
-                                          : "Users can only view household information."}
+                                        {groupAdmins.includes(editingUser.id) 
+                                          ? "Admins can manage group settings and members." 
+                                          : "Users can only view group information."}
                                       </p>
                                     )}
 
@@ -705,11 +728,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                   )}
                   
                   {/* Sign Out Button:
-                      Triggers the Firebase Auth signOut process and closes the modal.
+                      Triggers the Supabase Auth signOut process and closes the modal.
                   */}
                   <Button 
                     variant="ghost" 
-                    onClick={() => signOut()} 
+                    onClick={handleSignOut} 
                     className="flex-1 justify-end gap-3 text-red-500 hover:text-red-600 hover:bg-red-50 transition-all h-12 rounded-xl px-4"
                   >
                     <span className="font-bold">Sign Out</span>
@@ -737,13 +760,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
 
                 <div className="space-y-6">
                   <section>
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 px-1">All Households ({allHouseholds.length})</h4>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 px-1">All Groups ({allGroups.length})</h4>
                     <div className="space-y-2">
-                      {allHouseholds.map(h => (
-                        <div key={h.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-white shadow-sm">
+                      {allGroups.map(g => (
+                        <div key={g.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-white shadow-sm">
                           <div>
-                            <p className="text-sm font-bold text-slate-900">{h.name}</p>
-                            <p className="text-[10px] text-slate-500">{h.members.length} members • {h.admins.length} admins</p>
+                            <p className="text-sm font-bold text-slate-900">{g.name}</p>
+                            <p className="text-[10px] text-slate-500">Group ID: {g.id}</p>
                           </div>
                         </div>
                       ))}
@@ -765,7 +788,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                               </div>
                               <div>
                                 <p className="text-sm font-bold text-slate-900 group-hover/user:text-indigo-600 transition-colors">{u.name}</p>
-                                <p className="text-[10px] text-slate-500">{u.role} • {u.householdIds.length} households</p>
+                                <p className="text-[10px] text-slate-500">{u.isSysAdmin ? 'System Admin' : 'User'}</p>
                               </div>
                             </div>
                             <Button 
@@ -999,21 +1022,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
                   Cancel
                 </Button>
                 <Button 
-                  onClick={() => {
-                    if (pendingRoleChange.isGlobal) {
-                      setEditingUser({ 
-                        ...editingUser!, 
-                        role: pendingRoleChange.newRole === 'System Admin' ? 'system_admin' : 'user' 
-                      });
-                    } else {
-                      const isAdmin = householdAdmins.includes(pendingRoleChange.userId);
-                      if (isAdmin) {
-                        setHouseholdAdmins(householdAdmins.filter(id => id !== pendingRoleChange.userId));
-                      } else {
-                        setHouseholdAdmins([...householdAdmins, pendingRoleChange.userId]);
+                  onClick={async () => {
+                    try {
+                      if (pendingRoleChange.isGlobal) {
+                        // Handle global role change (System Admin status)
+                        await choreService.updateUser(pendingRoleChange.userId, {
+                          isSysAdmin: pendingRoleChange.newRole === 'System Admin'
+                        });
+                      } else if (currentGroup) {
+                        // Handle local role change (Group Admin/Member)
+                        const newRole = pendingRoleChange.newRole === 'Group Admin' ? 'ADMIN' : 'MEMBER';
+                        await choreService.updateMemberRole(
+                          currentGroup.id,
+                          pendingRoleChange.userId,
+                          newRole
+                        );
                       }
+                    } catch (err) {
+                      console.error('Failed to change role:', err);
+                    } finally {
+                      setPendingRoleChange(null);
                     }
-                    setPendingRoleChange(null);
                   }}
                   className="flex-1 h-11 bg-indigo-600 hover:bg-indigo-700 rounded-xl font-bold"
                 >
@@ -1045,7 +1074,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ currentUser, curre
               </div>
               <h3 className="text-lg font-bold text-slate-900 mb-2">Action Not Permitted</h3>
               <p className="text-sm text-slate-600 mb-6">
-                A household must have at least one administrator. You cannot demote the last remaining admin.
+                A group must have at least one administrator. You cannot demote the last remaining admin.
               </p>
               <Button 
                 onClick={() => setShowAdminError(false)}
