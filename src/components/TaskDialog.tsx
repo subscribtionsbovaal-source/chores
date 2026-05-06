@@ -35,7 +35,6 @@ import { format, addDays, addWeeks, addMonths as addMonthsDate } from 'date-fns'
 import { Check, Circle, Flame } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { choreService } from '../lib/choreService';
-import { getUserDisplayInfo } from '../lib/userUtils';
 
 // --- Form Validation Schema ---
 const taskSchema = z.object({
@@ -47,8 +46,8 @@ const taskSchema = z.object({
   interval: z.number().min(1).optional(),
   weekDays: z.array(z.number()).optional(),
   recurrenceEndDate: z.string().optional(),
-  status: z.enum(['to do', 'done']).optional(),
-  priority: z.enum(['high', 'none']).optional(),
+  status: z.enum(['TO DO', 'IN PROGRESS', 'DONE']).optional(),
+  priority: z.enum(['HIGH', 'REGULAR', 'LOW']),
 });
 
 type TaskFormValues = z.infer<typeof taskSchema>;
@@ -59,21 +58,21 @@ interface TaskDialogProps {
   /** Close handler, usually called after success or cancel. */
   onClose: () => void;
   /** Submission logic, handles creating/updating the Task blueprint and Instance. */
-  onSave: (data: TaskFormValues) => void;
+  onSave: (data: any, option: 'instance' | 'series') => void;
   /** Optional handler to delete the task or entire series. */
-  onDelete?: (id: string, deleteAll?: boolean) => void;
+  onDelete?: (id: number, deleteAll: boolean) => void;
   /** The specific occurrence being edited (null for new tasks). */
   task?: TaskInstance | null;
   /** All task blueprints available, used to find parent data. */
   tasks?: Task[];
-  /** List of household members for the 'Assigned To' picker. */
+  /** List of group members for the 'Assigned To' picker. */
   users: User[];
   /** Default date when opening 'Create Task' from a specific day. */
   initialDate?: Date;
-  /** The UID of the current user, used for logging 'completedBy'. */
-  currentUserId: string;
-  /** The ID of the current household context. */
-  householdId?: string;
+  /** The numeric ID of the current user. */
+  currentUserId: number;
+  /** The numeric ID of the current group context. */
+  groupId?: number;
 }
 
 /**
@@ -91,7 +90,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
   users,
   initialDate,
   currentUserId,
-  householdId
+  groupId
 }) => {
   // --- Form Initialization ---
   // Using React Hook Form with Zod for robust validation and type safety.
@@ -113,8 +112,8 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
       interval: 1,
       weekDays: [],
       recurrenceEndDate: '',
-      status: 'to do',
-      priority: 'none',
+      status: 'TO DO',
+      priority: 'REGULAR',
     }
   });
 
@@ -125,17 +124,38 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
   useEffect(() => {
     if (task) {
       const taskDef = tasks.find(t => t.id === task.taskId);
+      
+      let recurrence: any = 'none';
+      let interval = 1;
+      let weekDays: number[] = [];
+      
+      if (taskDef?.isRecurring) {
+        if (taskDef.rrule) {
+          try {
+            const parsed = JSON.parse(taskDef.rrule);
+            recurrence = parsed.freq || 'daily';
+            interval = parsed.interval || 1;
+            weekDays = parsed.byday || [];
+          } catch (e) {
+            console.error("Failed to parse RRULE:", e);
+            recurrence = 'daily';
+          }
+        } else {
+          recurrence = 'daily';
+        }
+      }
+
       reset({
-        title: taskDef?.title || '',
-        description: taskDef?.description || '',
+        title: task.title || '',
+        description: task.description || '',
         dueDate: format(new Date(task.dueDate), 'yyyy-MM-dd'),
-        assignedTo: task.assignedTo || 'unassigned',
-        recurrence: taskDef?.recurrence || 'none',
-        interval: taskDef?.interval || 1,
-        weekDays: taskDef?.weekDays || [],
-        recurrenceEndDate: taskDef?.recurrenceEndDate ? format(new Date(taskDef.recurrenceEndDate), 'yyyy-MM-dd') : '',
-        status: task.status || 'to do',
-        priority: task.priority || 'none',
+        assignedTo: task.assignedTo ? String(task.assignedTo) : 'unassigned',
+        recurrence,
+        interval,
+        weekDays,
+        recurrenceEndDate: taskDef?.endDate ? format(new Date(taskDef.endDate), 'yyyy-MM-dd') : '',
+        status: task.status || 'TO DO',
+        priority: task.priority || 'REGULAR',
       });
     } else if (initialDate) {
       reset({
@@ -147,11 +167,22 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
         interval: 1,
         weekDays: [],
         recurrenceEndDate: '',
-        status: 'to do',
-        priority: 'none',
+        status: 'TO DO',
+        priority: 'REGULAR',
       });
     } else {
-      reset();
+      reset({
+        title: '',
+        description: '',
+        dueDate: format(new Date(), 'yyyy-MM-dd'),
+        assignedTo: 'unassigned',
+        recurrence: 'none',
+        interval: 1,
+        weekDays: [],
+        recurrenceEndDate: '',
+        status: 'TO DO',
+        priority: 'REGULAR',
+      });
     }
   }, [task, tasks, initialDate, reset, isOpen]);
 
@@ -168,29 +199,29 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
    * It uses optimistic state updates for the best UX.
    */
   const toggleStatus = async () => {
-    const newStatus = status === 'done' ? 'to do' : 'done';
+    const newStatus = status === 'DONE' ? 'TO DO' : 'DONE';
     
     // UI Update (Optimistic)
-    setValue('status', newStatus as 'to do' | 'done');
+    setValue('status', newStatus as 'TO DO' | 'DONE');
 
     // Database Update (Instant)
     if (task) {
       try {
-        await choreService.toggleInstanceStatus(task.id, status || 'to do', currentUserId);
+        await choreService.toggleInstanceStatus(task.id, status as any || 'TO DO', currentUserId);
       } catch (error) {
         console.error("Failed to toggle status instantly:", error);
         // Rollback on error if database write fails to prevent desync
-        setValue('status', status as 'to do' | 'done');
+        setValue('status', status as any || 'TO DO');
       }
     }
   };
 
   /**
    * --- Priority Toggle ---
-   * Toggles the burning 'high' priority status.
+   * Toggles the burning 'HIGH' priority status.
    */
   const togglePriority = () => {
-    setValue('priority', priority === 'high' ? 'none' : 'high');
+    setValue('priority', priority === 'HIGH' ? 'REGULAR' : 'HIGH');
   };
 
   // --- Handler: Custom Recurrence Weekday Toggle ---
@@ -205,12 +236,36 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
 
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
+  const [showSaveConfirm, setShowSaveConfirm] = React.useState(false);
+  const [pendingSaveData, setPendingSaveData] = React.useState<TaskFormValues | null>(null);
 
   // --- Handler: Form Submission ---
   const onSubmit = async (data: TaskFormValues) => {
     setSaveError(null);
+    
+    // If creating a new task, it's always a series/template create
+    if (!task) {
+      return handleActualSave(data, 'series');
+    }
+
+    // If editing a recurring task, ask for scope
+    if (task.isRecurring) {
+      setPendingSaveData(data);
+      setShowSaveConfirm(true);
+    } else {
+      handleActualSave(data, 'series');
+    }
+  };
+
+  const handleActualSave = async (data: TaskFormValues, option: 'instance' | 'series') => {
     try {
-      await onSave(data);
+      // Map assignedTo back to number
+      const mappedData = {
+        ...data,
+        assignedTo: data.assignedTo === 'unassigned' ? undefined : Number(data.assignedTo),
+        status: data.status || status // Ensure status is preserved
+      };
+      await onSave(mappedData, option);
       onClose();
     } catch (error) {
       console.error("Failed to save task:", error);
@@ -223,7 +278,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
       <DialogContent 
         className="sm:max-w-[425px] rounded-2xl p-0 max-h-[96vh] overflow-hidden flex flex-col"
       >
-        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col max-h-[96vh]">
+        <form onSubmit={handleSubmit((d) => onSubmit(d))} className="flex flex-col max-h-[96vh]">
           {/* --- Dialog Header --- */}
           <DialogHeader className="px-5 pb-2 pt-[20px] mt-0 space-y-1">
             <div className="flex items-center justify-between gap-4 w-[370px] mb-0 mr-0 pr-[32px]">
@@ -247,13 +302,13 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
                   onClick={toggleStatus}
                   className={cn(
                     "relative shrink-0 h-[24px] w-[64px] rounded-[16px] transition-all duration-300 overflow-hidden flex items-center justify-center group/stamp",
-                    status === 'done' 
+                    status === 'DONE' 
                       ? "bg-emerald-500 text-white shadow-lg shadow-emerald-100" 
                       : "bg-slate-100 text-slate-500 hover:bg-slate-200"
                   )}
                 >
                   <AnimatePresence mode="wait">
-                    {status === 'done' ? (
+                    {status === 'DONE' ? (
                       <motion.div
                         key="done"
                         initial={{ scale: 0, opacity: 0 }}
@@ -301,12 +356,12 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
                 onClick={togglePriority}
                 className={cn(
                   "h-[24px] w-[128px] rounded-[16px] flex items-center justify-center gap-2 transition-all duration-300",
-                  priority === 'high' 
+                  priority === 'HIGH' 
                     ? "bg-orange-500 text-white shadow-md shadow-orange-100 ring-2 ring-orange-200 ring-offset-1" 
                     : "bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-500 border border-slate-100"
                 )}
               >
-                <Flame className={cn("h-3.5 w-3.5", priority === 'high' ? "" : "opacity-40")} fill={priority === 'high' ? "currentColor" : "none"} />
+                <Flame className={cn("h-3.5 w-3.5", priority === 'HIGH' ? "" : "opacity-40")} fill={priority === 'HIGH' ? "currentColor" : "none"} />
                 <span className="text-[10px] font-bold uppercase tracking-wider text-center">Burning Task</span>
               </button>
             </div>
@@ -336,13 +391,12 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
                     {(() => {
                       const val = watch('assignedTo');
                       if (val === 'unassigned' || !val) return "Unassigned";
-                      const user = users.find(u => u.id === val);
+                      const user = users.find(u => String(u.id) === val);
                       if (!user) return "Unassigned";
-                      const displayInfo = getUserDisplayInfo(user, householdId);
                       return (
                         <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: displayInfo.color }} />
-                          <span>{displayInfo.name}</span>
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: user.color }} />
+                          <span>{user.name}</span>
                         </div>
                       );
                     })()}
@@ -351,12 +405,11 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
                 <SelectContent>
                   <SelectItem value="unassigned">Unassigned</SelectItem>
                   {users.map(user => {
-                    const displayInfo = getUserDisplayInfo(user, householdId);
                     return (
-                      <SelectItem key={user.id} value={user.id}>
+                      <SelectItem key={user.id} value={String(user.id)}>
                         <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: displayInfo.color }} />
-                          {displayInfo.name}
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: user.color }} />
+                          {user.name}
                         </div>
                       </SelectItem>
                     );
@@ -483,11 +536,13 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
                   type="button" 
                   variant="destructive" 
                   onClick={() => {
-                    const taskDef = tasks.find(t => t.id === task.taskId);
-                    if (taskDef && taskDef.recurrence !== 'none') {
+                    const isRecurring = task.isRecurring;
+                    const isCurrentlyRecurring = recurrence !== 'none';
+                    
+                    if (isRecurring && isCurrentlyRecurring) {
                       setShowDeleteConfirm(true);
                     } else {
-                      onDelete(task.id);
+                      onDelete(task.id, false);
                       onClose();
                     }
                   }}
@@ -510,7 +565,7 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
                       <Button
                         variant="outline"
                         onClick={() => {
-                          onDelete(task.id, false);
+                          if (onDelete && task) onDelete(task.id, false);
                           setShowDeleteConfirm(false);
                           onClose();
                         }}
@@ -521,11 +576,46 @@ export const TaskDialog: React.FC<TaskDialogProps> = ({
                       <Button
                         variant="destructive"
                         onClick={() => {
-                          onDelete(task.id, true);
+                          if (onDelete && task) onDelete(task.id, true);
                           setShowDeleteConfirm(false);
                           onClose();
                         }}
                         className="rounded-xl h-9"
+                      >
+                        Entire series
+                      </Button>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+
+                {/* --- Recurring Save Confirmation --- */}
+                <AlertDialog open={showSaveConfirm} onOpenChange={setShowSaveConfirm}>
+                  <AlertDialogContent className="rounded-2xl">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Save Recurring Task</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Do you want to apply these changes only to this instance or to the entire task series?
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+                      <AlertDialogCancel variant="outline" size="default" className="rounded-xl h-9">Cancel</AlertDialogCancel>
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          if (pendingSaveData) handleActualSave(pendingSaveData, 'instance');
+                          setShowSaveConfirm(false);
+                        }}
+                        className="rounded-xl h-9"
+                      >
+                        Only this instance
+                      </Button>
+                      <Button
+                        variant="default"
+                        onClick={() => {
+                          if (pendingSaveData) handleActualSave(pendingSaveData, 'series');
+                          setShowSaveConfirm(false);
+                        }}
+                        className="rounded-xl bg-indigo-600 hover:bg-indigo-700 h-9"
                       >
                         Entire series
                       </Button>
